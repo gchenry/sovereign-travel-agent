@@ -1,0 +1,37 @@
+# Python virtual environments & caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# Environment & secret configuration files
+.env
+.env.*
+!.env.local.example
+
+# Sensitive local data mounts (Memory Bank profiles & Corporate DB records)
+data/*.local.json
+!data/*.example.json
+
+# Resolved deployment manifests & GCP credentials
+deploy/**/*.local.*
+deploy/**/*.resolved.*
+*credentials*.json
+*service-account*.json
+*.pem
+*.key
+
+# Terraform local state & variables
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+
+# OS / IDE files
+.DS_Store

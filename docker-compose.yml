@@ -1,0 +1,94 @@
+services:
+  # 1. The Router Agent (Orchestrates user requests)
+  travel-router:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: sovereign-travel-agent:local
+    container_name: travel-router
+    ports:
+      - "8085:8080"
+    env_file:
+      - .env
+    environment:
+      - AGENT_ROLE=travel-router
+      - AGENT_GATEWAY_URL=http://mock-agent-gateway:8095
+      - TRAVEL_PLANNER_URL=http://travel-planner:8080
+      - CORPORATE_POLICY_AGENT_URL=http://corporate-policy-agent:8080
+      - MCP_SERVER_URL=http://corporate-mcp-server:8090
+      - AIRLINE_API_URL=http://mock-airline-api:8091
+    volumes:
+      - ./data:/workspace/data:ro
+    depends_on:
+      - travel-planner
+      - corporate-policy-agent
+      - mock-agent-gateway
+
+  # 2. The Travel Planner Agent (Pulls context from MEMORYBANK_ID + queries Airline API)
+  travel-planner:
+    image: sovereign-travel-agent:local
+    container_name: travel-planner
+    ports:
+      - "8086:8080"
+    env_file:
+      - .env
+    environment:
+      - AGENT_ROLE=travel-planner
+      - AGENT_GATEWAY_URL=http://mock-agent-gateway:8095
+      - WORKLOAD_SPIFFE_ID=${PLANNER_SPIFFE_ID}
+      - AIRLINE_API_URL=http://mock-airline-api:8091
+    volumes:
+      - ./data:/workspace/data:ro
+    depends_on:
+      - mock-agent-gateway
+      - mock-airline-api
+
+  # 3. The Corporate Policy Agent (Queries internal DB via MCP Server over Gateway)
+  corporate-policy-agent:
+    image: sovereign-travel-agent:local
+    container_name: corporate-policy-agent
+    ports:
+      - "8087:8080"
+    env_file:
+      - .env
+    environment:
+      - AGENT_ROLE=corporate-policy-agent
+      - AGENT_GATEWAY_URL=http://mock-agent-gateway:8095
+      - WORKLOAD_SPIFFE_ID=${POLICY_SPIFFE_ID}
+      - MCP_SERVER_URL=http://corporate-mcp-server:8090
+    volumes:
+      - ./data:/workspace/data:ro
+    depends_on:
+      - mock-agent-gateway
+      - corporate-mcp-server
+
+  # 4. Local Mock Agent Gateway (Simulates agw-travel-secure SPIFFE + Egress rules)
+  mock-agent-gateway:
+    build:
+      context: .
+      dockerfile: services/mock_gateway/Dockerfile
+    container_name: mock-agent-gateway
+    ports:
+      - "8095:8095"
+    env_file:
+      - .env
+
+  # 5. Secure Corporate MCP Server (Internal Corporate Database & Policy Enforcer)
+  corporate-mcp-server:
+    build:
+      context: .
+      dockerfile: services/corporate_mcp/Dockerfile
+    container_name: corporate-mcp-server
+    ports:
+      - "8090:8090"
+    volumes:
+      - ./data:/srv/data:ro
+
+  # 6. External Mock Airline API
+  mock-airline-api:
+    build:
+      context: .
+      dockerfile: services/mock_airline/Dockerfile
+    container_name: mock-airline-api
+    ports:
+      - "8091:8091"

@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# ==============================================================================
+# `agy` — Pre-Flight Evaluation & Agent Platform CLI Wrapper
+# Usage:
+#   ./scripts/agy test
+# ==============================================================================
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+BOLD="\033[1m"
+CYAN="\033[36m"
+GREEN="\033[32m"
+YELLOW="\033[33m"
+RESET="\033[0m"
+
+cmd="${1:-test}"
+
+if [[ "${cmd}" != "test" ]]; then
+  echo "Usage: agy test"
+  exit 1
+fi
+
+echo -e "${BOLD}${CYAN}========================================================================${RESET}"
+echo -e "${BOLD}${CYAN}  Gemini Enterprise Agent Platform — Pre-Deployment Validation (agy test)${RESET}"
+echo -e "${BOLD}${CYAN}========================================================================${RESET}"
+echo -e "${YELLOW}• Verifying stateless container configuration (MEMORYBANK_ID, SESSION_STORE_URI)${RESET}"
+echo -e "${YELLOW}• Verifying Travel Router -> Travel Planner & Corporate Policy MCP routing${RESET}"
+echo -e "${YELLOW}• Verifying SPIFFE (JWT-SVID) token check & graceful Gateway 403 handling${RESET}"
+echo ""
+
+cd "${PROJECT_ROOT}"
+PYTHON_BIN="python3"
+if [[ -x "${PROJECT_ROOT}/.venv/bin/python" ]]; then
+  PYTHON_BIN="${PROJECT_ROOT}/.venv/bin/python"
+fi
+"${PYTHON_BIN}" -m pytest -v tests/test_pre_flight.py
+
+echo ""
+echo -e "${BOLD}${GREEN}✔ Pre-Flight Evaluation Passed: Agent containers handle Gateway rejections gracefully.${RESET}"
+echo -e "${BOLD}${GREEN}✔ Ready to promote local container images to Cloud Run + Agent Gateway (agw-travel-secure).${RESET}"

@@ -1,0 +1,29 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: travel-router
+  annotations:
+    run.googleapis.com/ingress: all
+    aiplatform.googleapis.com/agent-gateway: "projects/YOUR_PROJECT_ID/locations/us-central1/agentGateways/agw-travel-secure"
+spec:
+  template:
+    metadata:
+      annotations:
+        run.googleapis.com/execution-environment: gen2
+    spec:
+      serviceAccountName: travel-router-sa@YOUR_PROJECT_ID.iam.gserviceaccount.com
+      containers:
+        - image: us-central1-docker.pkg.dev/YOUR_PROJECT_ID/sovereign-travel-repo/sovereign-travel-agent:latest
+          ports:
+            - containerPort: 8080
+          env:
+            - name: AGENT_ROLE
+              value: "travel-router"
+            - name: MEMORYBANK_ID
+              value: "projects/YOUR_PROJECT_ID/locations/us-central1/memoryBanks/mb-exec-travel-profiles"
+            - name: SESSION_STORE_URI
+              value: "firestore://projects/YOUR_PROJECT_ID/databases/agent-session-store/collections/sessions"
+            - name: AGENT_GATEWAY_RESOURCE
+              value: "projects/YOUR_PROJECT_ID/locations/us-central1/agentGateways/agw-travel-secure"
+            - name: WORKLOAD_SPIFFE_ID
+              value: "spiffe://YOUR_PROJECT_ID.svc.id.goog/ns/agent-engine/sa/travel-router-sa"

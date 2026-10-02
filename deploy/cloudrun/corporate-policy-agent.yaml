@@ -1,0 +1,27 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: corporate-policy-agent
+  annotations:
+    run.googleapis.com/ingress: internal
+    aiplatform.googleapis.com/agent-gateway: "projects/YOUR_PROJECT_ID/locations/us-central1/agentGateways/agw-travel-secure"
+spec:
+  template:
+    metadata:
+      annotations:
+        run.googleapis.com/execution-environment: gen2
+    spec:
+      serviceAccountName: corporate-policy-sa@YOUR_PROJECT_ID.iam.gserviceaccount.com
+      containers:
+        - image: us-central1-docker.pkg.dev/YOUR_PROJECT_ID/sovereign-travel-repo/sovereign-travel-agent:latest
+          ports:
+            - containerPort: 8080
+          env:
+            - name: AGENT_ROLE
+              value: "corporate-policy-agent"
+            - name: MEMORYBANK_ID
+              value: "projects/YOUR_PROJECT_ID/locations/us-central1/memoryBanks/mb-exec-travel-profiles"
+            - name: SESSION_STORE_URI
+              value: "firestore://projects/YOUR_PROJECT_ID/databases/agent-session-store/collections/sessions"
+            - name: WORKLOAD_SPIFFE_ID
+              value: "spiffe://YOUR_PROJECT_ID.svc.id.goog/ns/agent-engine/sa/corporate-policy-sa"

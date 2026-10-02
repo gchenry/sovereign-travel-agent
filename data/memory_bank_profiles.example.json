@@ -1,0 +1,28 @@
+{
+  "exec-user-001": {
+    "user_id": "exec-user-001",
+    "name": "Alex Rivera",
+    "title": "VP of Global Engineering",
+    "department": "Engineering",
+    "home_airport": "SFO",
+    "preferred_cabin": "Business",
+    "preferred_airline": "Pacific Star Airlines",
+    "loyalty_number": "REDACTED-IN-GIT",
+    "seat_preference": "Window (A/K)",
+    "dietary_notes": "Vegetarian",
+    "corporate_card_last4": "XXXX"
+  },
+  "default": {
+    "user_id": "default",
+    "name": "Jordan Taylor",
+    "title": "Staff Solutions Architect",
+    "department": "Field Engineering",
+    "home_airport": "SFO",
+    "preferred_cabin": "Premium Economy",
+    "preferred_airline": "Pacific Star Airlines",
+    "loyalty_number": "REDACTED-IN-GIT",
+    "seat_preference": "Aisle",
+    "dietary_notes": "None",
+    "corporate_card_last4": "XXXX"
+  }
+}

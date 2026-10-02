@@ -1,0 +1,39 @@
+apiVersion: aiplatform.googleapis.com/v1beta1
+kind: AgentGateway
+metadata:
+  name: projects/YOUR_PROJECT_ID/locations/us-central1/agentGateways/agw-travel-secure
+  labels:
+    pillar: govern
+    environment: production
+spec:
+  mode: AGENT_TO_ANYWHERE_EGRESS
+  description: "Zero-Trust Egress Gateway for the Travel & Expense Sovereign Fleet"
+
+  # Cryptographic Workload Identity Validation via Google Security Token Service (STS)
+  identityValidation:
+    protocol: SPIFFE_JWT_SVID
+    stsAudience: "https://sts.googleapis.com/v1/token"
+    trustDomain: "YOUR_PROJECT_ID.svc.id.goog"
+    authorizedWorkloads:
+      - "spiffe://YOUR_PROJECT_ID.svc.id.goog/ns/agent-engine/sa/travel-router-sa"
+      - "spiffe://YOUR_PROJECT_ID.svc.id.goog/ns/agent-engine/sa/travel-planner-sa"
+      - "spiffe://YOUR_PROJECT_ID.svc.id.goog/ns/agent-engine/sa/corporate-policy-sa"
+
+  # Private Service Connect (PSC) Egress Targets (Internal Corporate VPC)
+  privateServiceConnectTargets:
+    - name: secure-corporate-mcp
+      serviceAttachment: "projects/YOUR_PROJECT_ID/regions/us-central1/serviceAttachments/corp-mcp-psc-attachment"
+      allowedCallers:
+        - "spiffe://YOUR_PROJECT_ID.svc.id.goog/ns/agent-engine/sa/travel-router-sa"
+        - "spiffe://YOUR_PROJECT_ID.svc.id.goog/ns/agent-engine/sa/corporate-policy-sa"
+
+  # External Egress Allowlist (Default Deny for all unlisted external destinations)
+  egressPolicy:
+    defaultAction: DENY
+    auditLogging: ENABLED_ALL_VIOLATIONS
+    allowRules:
+      - name: allow-mock-airline-api
+        hosts:
+          - "mock-airline-api-YOUR_PROJECT_HASH-uc.a.run.app"
+        methods: ["GET"]
+        ports: [443]

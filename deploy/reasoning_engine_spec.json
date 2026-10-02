@@ -1,0 +1,28 @@
+{
+  "displayName": "sovereign-travel-router-agent",
+  "description": "Sovereign Travel & Expense Router Agent governed by Agent Gateway (Egress Mode)",
+  "spec": {
+    "deploymentSpec": {
+      "agentGatewayConfig": {
+        "agentGateway": "projects/YOUR_PROJECT_ID/locations/us-central1/agentGateways/agw-travel-secure"
+      },
+      "containerSpec": {
+        "imageUri": "us-central1-docker.pkg.dev/YOUR_PROJECT_ID/sovereign-travel-repo/sovereign-travel-agent:latest",
+        "env": [
+          {
+            "name": "AGENT_ROLE",
+            "value": "travel-router"
+          },
+          {
+            "name": "MEMORYBANK_ID",
+            "value": "projects/YOUR_PROJECT_ID/locations/us-central1/memoryBanks/mb-exec-travel-profiles"
+          },
+          {
+            "name": "SESSION_STORE_URI",
+            "value": "firestore://projects/YOUR_PROJECT_ID/databases/agent-session-store/collections/sessions"
+          }
+        ]
+      }
+    }
+  }
+}
