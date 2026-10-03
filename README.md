@@ -180,7 +180,32 @@ gcloud compute service-attachments create corp-mcp-psc-attachment \
   --project="${PROJECT_ID}"
 ```
 
-### 6. Build, Push & Promote Containers to Cloud Run
+### 6. Vertex AI Reasoning Engine & Memory Bank (`MEMORYBANK_ID`)
+```bash
+ADC_TOKEN="$(gcloud auth application-default print-access-token)"
+
+# Create the ReasoningEngine with Memory Bank enabled
+curl -X POST \
+  -H "Authorization: Bearer ${ADC_TOKEN}" \
+  -H "Content-Type: application/json" \
+  "https://${REGION}-aiplatform.googleapis.com/v1beta1/projects/${PROJECT_ID}/locations/${REGION}/reasoningEngines" \
+  -d '{
+    "displayName": "sovereign-travel-router-agent",
+    "description": "Sovereign Travel & Expense Router Agent governed by Agent Gateway (Egress Mode)"
+  }'
+
+# Seed Traveler Profile Memory into the ReasoningEngine Memory Bank
+curl -X POST \
+  -H "Authorization: Bearer ${ADC_TOKEN}" \
+  -H "Content-Type: application/json" \
+  "https://${REGION}-aiplatform.googleapis.com/v1beta1/projects/${PROJECT_ID}/locations/${REGION}/reasoningEngines/${REASONING_ENGINE_ID}/memories" \
+  -d '{
+    "fact": "User exec-user-001 (Alex Rivera, VP of Global Engineering) prefers Business Class, Window seat (A/K), Vegetarian meal, home airport SFO, Pacific Star Airlines.",
+    "scope": {"user_id": "exec-user-001"}
+  }'
+```
+
+### 7. Build, Push & Promote Containers to Cloud Run
 ```bash
 ./deploy/promote_local_to_cloudrun.sh
 ```

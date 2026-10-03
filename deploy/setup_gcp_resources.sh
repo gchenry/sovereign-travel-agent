@@ -227,6 +227,48 @@ if ! gcloud compute service-attachments describe "corp-mcp-psc-attachment" --reg
     --project="${PROJECT_ID}"
 fi
 
-echo "==> [7/7] Resolving Agent Gateway Policy (${GATEWAY_NAME})..."
+echo "==> [7/7] Creating Vertex AI ReasoningEngine, Memory Bank, & Seeding Firestore..."
+ADC_TOKEN="$(gcloud auth application-default print-access-token)"
+
+# Seed Firestore `corp-travel-db` policy record
+curl -s -X PATCH \
+  -H "Authorization: Bearer ${ADC_TOKEN}" \
+  -H "Content-Type: application/json" \
+  "https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/corp-travel-db/documents/policies/CORP-TRAVEL-ENG-2026" \
+  -d '{
+    "fields": {
+      "department": {"stringValue": "Engineering"},
+      "policy_id": {"stringValue": "CORP-TRAVEL-ENG-2026"},
+      "max_business_class_fare_usd": {"doubleValue": 5500.0},
+      "max_economy_fare_usd": {"doubleValue": 1800.0},
+      "remaining_q4_budget_usd": {"doubleValue": 18500.0}
+    }
+  }' >/dev/null
+
+# Create Vertex AI ReasoningEngine (`sovereign-travel-router-agent`) with Memory Bank enabled
+RE_OP="$(curl -s -X POST \
+  -H "Authorization: Bearer ${ADC_TOKEN}" \
+  -H "Content-Type: application/json" \
+  "https://${REGION}-aiplatform.googleapis.com/v1beta1/projects/${PROJECT_ID}/locations/${REGION}/reasoningEngines" \
+  -d '{
+    "displayName": "sovereign-travel-router-agent",
+    "description": "Sovereign Travel & Expense Router Agent governed by Agent Gateway (Egress Mode)"
+  }')"
+
+RE_ID="$(echo "${RE_OP}" | python3 -c "import sys, json; data=json.load(sys.stdin); print(data.get('name','').split('/reasoningEngines/')[-1].split('/')[0])" 2>/dev/null || true)"
+
+if [[ -n "${RE_ID}" ]]; then
+  echo "    Created Vertex AI ReasoningEngine ID: ${RE_ID}"
+  sleep 3
+  curl -s -X POST \
+    -H "Authorization: Bearer ${ADC_TOKEN}" \
+    -H "Content-Type: application/json" \
+    "https://${REGION}-aiplatform.googleapis.com/v1beta1/projects/${PROJECT_ID}/locations/${REGION}/reasoningEngines/${RE_ID}/memories" \
+    -d '{
+      "fact": "User exec-user-001 (Alex Rivera, VP of Global Engineering) prefers Business Class, Window seat (A/K), Vegetarian meal, home airport SFO, Pacific Star Airlines.",
+      "scope": {"user_id": "exec-user-001"}
+    }' >/dev/null || true
+fi
+
 sed "s/YOUR_PROJECT_ID/${PROJECT_ID}/g" deploy/agent_gateway_policy.yaml > deploy/agent_gateway_policy.resolved.yaml
 echo "✔ All GCP Infrastructure resources provisioned in ${PROJECT_ID}."
