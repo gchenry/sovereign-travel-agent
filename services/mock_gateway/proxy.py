@@ -71,6 +71,17 @@ ALLOWED_EGRESS_HOSTS = {
     "127.0.0.1:8091",
 }
 
+
+def _get_allowed_egress_hosts() -> Set[str]:
+    hosts = set(ALLOWED_EGRESS_HOSTS)
+    extra = os.getenv("EXTRA_ALLOWED_EGRESS_HOSTS", "")
+    for item in extra.replace(",", ";").split(";"):
+        cleaned = item.strip()
+        if cleaned:
+            hosts.add(cleaned)
+    return hosts
+
+
 _AUDIT_LOG_BUFFER: List[Dict[str, Any]] = []
 
 
@@ -125,7 +136,7 @@ def health_check() -> Dict[str, Any]:
         "gateway_resource": _get_gateway_resource(),
         "mode": "AGENT_TO_ANYWHERE_EGRESS",
         "authorized_spiffe_identities": sorted(_get_authorized_spiffe_ids()),
-        "allowed_egress_hosts": sorted(ALLOWED_EGRESS_HOSTS),
+        "allowed_egress_hosts": sorted(_get_allowed_egress_hosts()),
     }
 
 
@@ -145,6 +156,7 @@ def forward_egress(
     parsed = urlparse(req.target_url)
     host_port = parsed.netloc
     authorized_ids = _get_authorized_spiffe_ids()
+    allowed_hosts = _get_allowed_egress_hosts()
 
     # 1. Validate Cryptographic SPIFFE Identity (JWT-SVID via Google STS)
     if not x_workload_spiffe_id or x_workload_spiffe_id not in authorized_ids:
@@ -163,7 +175,7 @@ def forward_egress(
         }
 
     # 2. Enforce Zero-Trust Egress Destination Policy
-    if host_port not in ALLOWED_EGRESS_HOSTS:
+    if host_port not in allowed_hosts:
         audit = _record_audit_log(
             decision="DENY",
             reason="ZERO_TRUST_EGRESS_DESTINATION_VIOLATION",
@@ -194,6 +206,20 @@ def forward_egress(
         "X-Agent-Gateway-Verified": "true",
         "X-Verified-SPIFFE-ID": x_workload_spiffe_id,
     }
+    if parsed.scheme == "https" and parsed.netloc.endswith(".run.app"):
+        audience = f"{parsed.scheme}://{parsed.netloc}"
+        metadata_url = (
+            "http://metadata.google.internal/computeMetadata/v1/instance/"
+            f"service-accounts/default/identity?audience={audience}"
+        )
+        try:
+            with httpx.Client(timeout=2.0) as mclient:
+                mresp = mclient.get(metadata_url, headers={"Metadata-Flavor": "Google"})
+                if mresp.status_code == 200 and mresp.text:
+                    forward_headers["Authorization"] = f"Bearer {mresp.text.strip()}"
+        except httpx.HTTPError:
+            pass
+
     with httpx.Client(timeout=10.0) as client:
         if req.method.upper() == "POST":
             upstream_resp = client.post(req.target_url, json=req.json_body, headers=forward_headers)

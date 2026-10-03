@@ -8,6 +8,9 @@ platform perimeter by Google Cloud Agent Gateway (agw-travel-secure).
 from dataclasses import dataclass
 import os
 from pathlib import Path
+from typing import Dict
+from urllib.parse import urlparse
+import httpx
 
 try:
     from dotenv import load_dotenv
@@ -67,3 +70,23 @@ def get_config() -> AgentConfig:
         mcp_server_url=os.getenv("MCP_SERVER_URL", "http://corporate-mcp-server:8090"),
         airline_api_url=os.getenv("AIRLINE_API_URL", "http://mock-airline-api:8091"),
     )
+
+
+def get_cloud_run_headers(target_url: str, extra_headers: Dict[str, str] | None = None) -> Dict[str, str]:
+    """Attach GCP Metadata Server identity token when calling IAM-protected Cloud Run URLs."""
+    headers = dict(extra_headers or {})
+    parsed = urlparse(target_url)
+    if parsed.scheme == "https" and parsed.netloc.endswith(".run.app"):
+        audience = f"{parsed.scheme}://{parsed.netloc}"
+        metadata_url = (
+            "http://metadata.google.internal/computeMetadata/v1/instance/"
+            f"service-accounts/default/identity?audience={audience}"
+        )
+        try:
+            with httpx.Client(timeout=2.0) as client:
+                resp = client.get(metadata_url, headers={"Metadata-Flavor": "Google"})
+                if resp.status_code == 200 and resp.text:
+                    headers["Authorization"] = f"Bearer {resp.text.strip()}"
+        except httpx.HTTPError:
+            pass
+    return headers

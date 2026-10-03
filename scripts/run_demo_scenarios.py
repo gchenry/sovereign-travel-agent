@@ -51,10 +51,33 @@ def _wait_for_url(url: str, timeout_s: float = 10.0) -> None:
     raise RuntimeError(f"Timed out waiting for {url}")
 
 
+def _get_auth_headers(url: str) -> dict[str, str]:
+    if url.startswith("https://") and ".run.app" in url:
+        try:
+            token = subprocess.check_output(
+                ["gcloud", "auth", "print-identity-token"],
+                text=True,
+                stderr=subprocess.DEVNULL,
+            ).strip()
+            if token:
+                return {"Authorization": f"Bearer {token}"}
+        except Exception:
+            pass
+    return {}
+
+
 def _is_fleet_running(router_url: str, gateway_url: str) -> bool:
     try:
-        r1 = httpx.get(f"{router_url}/health", timeout=0.5)
-        r2 = httpx.get(f"{gateway_url}/health", timeout=0.5)
+        r1 = httpx.get(
+            f"{router_url}/health",
+            headers=_get_auth_headers(router_url),
+            timeout=2.0,
+        )
+        r2 = httpx.get(
+            f"{gateway_url}/health",
+            headers=_get_auth_headers(gateway_url),
+            timeout=2.0,
+        )
         return (
             r1.status_code == 200
             and "agent_gateway_resource" in r1.json()
@@ -71,14 +94,16 @@ def main() -> None:
     with ExitStack() as stack:
         if not _is_fleet_running(router_url, gateway_url):
             print(f"{YELLOW}[Info] Starting local service fleet for live demonstration...{RESET}")
+            proj = os.getenv("GOOGLE_CLOUD_PROJECT", "YOUR_PROJECT_ID")
+            loc = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
             env_base = os.environ.copy()
             env_base.update(
                 {
-                    "MEMORYBANK_ID": "projects/demo-sovereign-travel/locations/us-central1/memoryBanks/mb-exec-travel-profiles",
-                    "SESSION_STORE_URI": "firestore://projects/demo-sovereign-travel/databases/agent-session-store/collections/sessions",
+                    "MEMORYBANK_ID": f"projects/{proj}/locations/{loc}/memoryBanks/mb-exec-travel-profiles",
+                    "SESSION_STORE_URI": f"firestore://projects/{proj}/databases/agent-session-store/collections/sessions",
                     "AGENT_GATEWAY_URL": "http://127.0.0.1:18095",
-                    "AGENT_GATEWAY_RESOURCE": "projects/demo-sovereign-travel/locations/us-central1/agentGateways/agw-travel-secure",
-                    "WORKLOAD_SPIFFE_ID": "spiffe://demo-sovereign-travel.svc.id.goog/ns/agent-engine/sa/travel-router-sa",
+                    "AGENT_GATEWAY_RESOURCE": f"projects/{proj}/locations/{loc}/agentGateways/agw-travel-secure",
+                    "WORKLOAD_SPIFFE_ID": f"spiffe://{proj}.svc.id.goog/ns/agent-engine/sa/travel-router-sa",
                     "TRAVEL_PLANNER_URL": "in-process",
                     "CORPORATE_POLICY_AGENT_URL": "in-process",
                     "MCP_SERVER_URL": "http://127.0.0.1:8090",
@@ -105,6 +130,11 @@ def main() -> None:
             _wait_for_url(f"{gateway_url}/health")
             _wait_for_url(f"{router_url}/health")
 
+        router_headers = _get_auth_headers(router_url)
+        gateway_headers = _get_auth_headers(gateway_url)
+        print(f"{BOLD}Target Travel Router Endpoint:{RESET} {router_url}")
+        print(f"{BOLD}Target Agent Gateway Endpoint:{RESET} {gateway_url}")
+
         print(f"\n{BOLD}{CYAN}============================================================================={RESET}")
         print(f"{BOLD}{CYAN}  SCENARIO 1: Authorized Travel & Expense Request (SPIFFE + PSC Verified){RESET}")
         print(f"{BOLD}{CYAN}============================================================================={RESET}")
@@ -113,7 +143,8 @@ def main() -> None:
         resp1 = httpx.post(
             f"{router_url}/invoke",
             json={"prompt": valid_prompt, "user_id": "exec-user-001", "session_id": "demo-live-001"},
-            timeout=10.0,
+            headers=router_headers,
+            timeout=20.0,
         ).json()
         print(f"{GREEN}✔ Status:{RESET} {resp1['status']}")
         print(f"{GREEN}✔ Memory Bank Mounted:{RESET} {resp1['memorybank_id']}")
@@ -132,7 +163,8 @@ def main() -> None:
                 "session_id": "demo-live-002",
                 "override_spiffe_id": "spiffe://rogue-workload.external/ns/default/sa/untrusted-agent",
             },
-            timeout=10.0,
+            headers=router_headers,
+            timeout=20.0,
         ).json()
         print(f"{RED}✖ Gateway Enforcement Status:{RESET} {resp2['status']}")
         print(f"{YELLOW}➜ Graceful Agent Response:{RESET} {resp2['response']}\n")
@@ -148,7 +180,8 @@ def main() -> None:
         resp3 = httpx.post(
             f"{router_url}/invoke",
             json={"prompt": injection_prompt, "user_id": "exec-user-001", "session_id": "demo-live-003"},
-            timeout=10.0,
+            headers=router_headers,
+            timeout=20.0,
         ).json()
         print(f"{RED}🛡️ Platform Action:{RESET} {resp3['status']} (Enforced by {resp3['agent_gateway']})")
         print(f"{YELLOW}➜ Graceful Agent Response:{RESET} {resp3['response']}\n")
@@ -157,7 +190,11 @@ def main() -> None:
         print(f"{BOLD}{CYAN}  PLATFORM AUDIT TELEMETRY (Cloud Logging -> Datadog Observability Handoff){RESET}")
         print(f"{BOLD}{CYAN}============================================================================={RESET}")
         try:
-            logs_resp = httpx.get(f"{gateway_url}/egress/logs", timeout=5.0).json()
+            logs_resp = httpx.get(
+                f"{gateway_url}/egress/logs",
+                headers=gateway_headers,
+                timeout=10.0,
+            ).json()
             for event in logs_resp.get("events", [])[-3:]:
                 print(json.dumps(event, indent=2))
         except httpx.HTTPError:

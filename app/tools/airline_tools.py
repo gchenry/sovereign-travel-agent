@@ -5,13 +5,14 @@ All outbound calls traverse the Agent Gateway (Egress Mode).
 
 from typing import Any, Dict
 import httpx
-from app.config import get_config
+from app.config import get_cloud_run_headers, get_config
 
 
 def search_flights(origin: str, destination: str, cabin_class: str = "Business") -> Dict[str, Any]:
     """Query the external Airline API via the platform Agent Gateway."""
     cfg = get_config()
     target_url = f"{cfg.airline_api_url.rstrip('/')}/flights/search"
+    gw_endpoint = f"{cfg.agent_gateway_url.rstrip('/')}/egress/forward"
 
     payload = {
         "target_url": target_url,
@@ -22,12 +23,12 @@ def search_flights(origin: str, destination: str, cabin_class: str = "Business")
             "cabin": cabin_class,
         },
     }
-    headers = {"X-Workload-SPIFFE-ID": cfg.workload_spiffe_id}
+    headers = get_cloud_run_headers(gw_endpoint, {"X-Workload-SPIFFE-ID": cfg.workload_spiffe_id})
 
     try:
         with httpx.Client(timeout=10.0) as client:
             resp = client.post(
-                f"{cfg.agent_gateway_url.rstrip('/')}/egress/forward",
+                gw_endpoint,
                 json=payload,
                 headers=headers,
             )

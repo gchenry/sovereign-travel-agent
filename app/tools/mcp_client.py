@@ -7,7 +7,7 @@ with verified SPIFFE JWT-SVID tokens are permitted by the Gateway.
 
 from typing import Any, Dict
 import httpx
-from app.config import get_config
+from app.config import get_cloud_run_headers, get_config
 
 
 def call_corporate_mcp_tool(
@@ -18,6 +18,7 @@ def call_corporate_mcp_tool(
     """Invoke a tool on the internal Corporate MCP Server via Agent Gateway + PSC."""
     cfg = get_config()
     target_url = f"{cfg.mcp_server_url.rstrip('/')}/mcp/call-tool"
+    gw_endpoint = f"{cfg.agent_gateway_url.rstrip('/')}/egress/forward"
     spiffe_id = override_spiffe_id or cfg.workload_spiffe_id
 
     payload = {
@@ -33,12 +34,12 @@ def call_corporate_mcp_tool(
             },
         },
     }
-    headers = {"X-Workload-SPIFFE-ID": spiffe_id}
+    headers = get_cloud_run_headers(gw_endpoint, {"X-Workload-SPIFFE-ID": spiffe_id})
 
     try:
         with httpx.Client(timeout=10.0) as client:
             resp = client.post(
-                f"{cfg.agent_gateway_url.rstrip('/')}/egress/forward",
+                gw_endpoint,
                 json=payload,
                 headers=headers,
             )

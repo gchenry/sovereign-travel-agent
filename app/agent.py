@@ -12,7 +12,7 @@ import re
 from typing import Any, Dict, List
 import httpx
 
-from app.config import get_config
+from app.config import get_cloud_run_headers, get_config
 from app.state import SessionStoreClient
 from app.agents.travel_planner import TravelPlannerAgent
 from app.agents.corporate_policy import CorporatePolicyAgent
@@ -35,11 +35,13 @@ class TravelRouterAgent:
         """Invoke Travel Planner Agent via A2A container endpoint or in-process fallback."""
         cfg = get_config()
         if cfg.travel_planner_url and cfg.travel_planner_url != "in-process":
+            target = f"{cfg.travel_planner_url.rstrip('/')}/a2a/plan"
             try:
-                with httpx.Client(timeout=5.0) as client:
+                with httpx.Client(timeout=8.0) as client:
                     resp = client.post(
-                        f"{cfg.travel_planner_url.rstrip('/')}/a2a/plan",
+                        target,
                         json={"user_id": user_id, "destination": destination},
+                        headers=get_cloud_run_headers(target),
                     )
                     if resp.status_code == 200:
                         return resp.json()
@@ -58,10 +60,11 @@ class TravelRouterAgent:
         """Invoke Corporate Policy Agent via A2A container endpoint or in-process fallback."""
         cfg = get_config()
         if cfg.corporate_policy_agent_url and cfg.corporate_policy_agent_url != "in-process":
+            target = f"{cfg.corporate_policy_agent_url.rstrip('/')}/a2a/policy-check"
             try:
-                with httpx.Client(timeout=5.0) as client:
+                with httpx.Client(timeout=8.0) as client:
                     resp = client.post(
-                        f"{cfg.corporate_policy_agent_url.rstrip('/')}/a2a/policy-check",
+                        target,
                         json={
                             "user_id": user_id,
                             "department": department,
@@ -69,6 +72,7 @@ class TravelRouterAgent:
                             "estimated_fare_usd": estimated_fare_usd,
                             "override_spiffe_id": override_spiffe_id,
                         },
+                        headers=get_cloud_run_headers(target),
                     )
                     if resp.status_code == 200:
                         return resp.json()

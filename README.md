@@ -47,17 +47,140 @@ Inspect the `ReasoningEngine` deployment specification binding the agent to `agw
 ```bash
 cat deploy/reasoning_engine_spec.json
 ```
-Promote the validated local container image to Artifact Registry, Cloud Run, and bind `agentGatewayConfig`:
+Provision the GCP infrastructure and promote the validated local containers to Artifact Registry & Cloud Run:
 ```bash
 ./deploy/setup_gcp_resources.sh
 ./deploy/promote_local_to_cloudrun.sh
 ```
 
 ### 4. Live Egress Block & Prompt Injection Demo (`00:32 - 00:35`)
-Run the interactive scenario runner to demonstrate:
-1. Authorized flight & Corporate MCP compliance check (`SPIFFE JWT-SVID` + `PSC`).
-2. Blocking an unauthorized/rogue agent SPIFFE identity at the Gateway.
-3. Blocking a simulated **Prompt Injection Attack** attempting to exfiltrate traveler profiles to `https://exfil-vault.attacker-analytics.io/collect`.
+Run the interactive scenario runner (locally or against your deployed Cloud Run fleet via `TARGET_ROUTER_URL` and `TARGET_GATEWAY_URL`):
 ```bash
 .venv/bin/python scripts/run_demo_scenarios.py
+```
+
+---
+
+## Complete GCP Resource CLI Reference
+
+All of the commands below are automated inside [`deploy/setup_gcp_resources.sh`](./deploy/setup_gcp_resources.sh) and [`deploy/promote_local_to_cloudrun.sh`](./deploy/promote_local_to_cloudrun.sh):
+
+### 1. Enable Required Google Cloud APIs
+```bash
+export PROJECT_ID="$(gcloud config get-value project)"
+export REGION="us-central1"
+
+gcloud services enable \
+  aiplatform.googleapis.com \
+  run.googleapis.com \
+  artifactregistry.googleapis.com \
+  cloudbuild.googleapis.com \
+  compute.googleapis.com \
+  servicedirectory.googleapis.com \
+  sts.googleapis.com \
+  iamcredentials.googleapis.com \
+  firestore.googleapis.com \
+  logging.googleapis.com \
+  cloudtrace.googleapis.com \
+  --project="${PROJECT_ID}"
+```
+
+### 2. Artifact Registry Repository (`sovereign-travel-repo`)
+```bash
+gcloud artifacts repositories create sovereign-travel-repo \
+  --repository-format=docker \
+  --location="${REGION}" \
+  --description="Stateless container images for the Sovereign Travel Agent Fleet" \
+  --project="${PROJECT_ID}"
+
+gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+```
+
+### 3. Service Accounts & SPIFFE Workload Identity Pool (`JWT-SVID`)
+```bash
+for sa in travel-router-sa travel-planner-sa corporate-policy-sa corporate-mcp-sa; do
+  gcloud iam service-accounts create "${sa}" \
+    --display-name="Sovereign Fleet Service Account (${sa})" \
+    --project="${PROJECT_ID}"
+done
+
+gcloud iam workload-identity-pools create "agent-fleet-wi-pool" \
+  --location="global" \
+  --display-name="Agent Fleet SPIFFE JWT-SVID Pool" \
+  --project="${PROJECT_ID}"
+
+gcloud iam workload-identity-pools providers create-oidc "spiffe-jwt-svid-provider" \
+  --workload-identity-pool="agent-fleet-wi-pool" \
+  --location="global" \
+  --issuer-uri="https://sts.googleapis.com" \
+  --allowed-audiences="https://sts.googleapis.com/v1/token" \
+  --attribute-mapping="google.subject=assertion.sub" \
+  --project="${PROJECT_ID}"
+```
+
+### 4. Cloud Firestore Databases (`SESSION_STORE_URI` & Corporate DB)
+```bash
+gcloud firestore databases create \
+  --database="agent-session-store" \
+  --location="${REGION}" \
+  --type=firestore-native \
+  --project="${PROJECT_ID}"
+
+gcloud firestore databases create \
+  --database="corp-travel-db" \
+  --location="${REGION}" \
+  --type=firestore-native \
+  --project="${PROJECT_ID}"
+```
+
+### 5. Corporate VPC, Internal Load Balancer, Serverless NEG & Private Service Connect (PSC)
+```bash
+# VPC & Subnets
+gcloud compute networks create corp-sovereign-vpc --subnet-mode=custom --project="${PROJECT_ID}"
+
+gcloud compute networks subnets create corp-sovereign-subnet \
+  --network=corp-sovereign-vpc --region="${REGION}" --range="10.20.0.0/24" \
+  --enable-private-ip-google-access --project="${PROJECT_ID}"
+
+gcloud compute networks subnets create corp-ilb-proxy-subnet \
+  --network=corp-sovereign-vpc --region="${REGION}" --range="10.20.20.0/24" \
+  --purpose=REGIONAL_MANAGED_PROXY --role=ACTIVE --project="${PROJECT_ID}"
+
+gcloud compute networks subnets create corp-mcp-psc-nat-subnet \
+  --network=corp-sovereign-vpc --region="${REGION}" --range="10.20.10.0/24" \
+  --purpose=PRIVATE_SERVICE_CONNECT --project="${PROJECT_ID}"
+
+# Serverless NEG + Internal Application Load Balancer + PSC Service Attachment
+gcloud compute network-endpoint-groups create corp-mcp-psc-neg \
+  --region="${REGION}" --network-endpoint-type=serverless \
+  --cloud-run-service=corporate-mcp-server --project="${PROJECT_ID}"
+
+gcloud compute backend-services create corp-mcp-backend \
+  --load-balancing-scheme=INTERNAL_MANAGED --protocol=HTTP --region="${REGION}" --project="${PROJECT_ID}"
+
+gcloud compute backend-services add-backend corp-mcp-backend \
+  --region="${REGION}" --network-endpoint-group=corp-mcp-psc-neg \
+  --network-endpoint-group-region="${REGION}" --project="${PROJECT_ID}"
+
+gcloud compute url-maps create corp-mcp-url-map \
+  --default-service=corp-mcp-backend --region="${REGION}" --project="${PROJECT_ID}"
+
+gcloud compute target-http-proxies create corp-mcp-http-proxy \
+  --url-map=corp-mcp-url-map --region="${REGION}" --project="${PROJECT_ID}"
+
+gcloud compute forwarding-rules create corp-mcp-ilb-forwarding-rule \
+  --load-balancing-scheme=INTERNAL_MANAGED --network=corp-sovereign-vpc \
+  --subnet=corp-sovereign-subnet --address="10.20.0.50" --ports=80 \
+  --region="${REGION}" --target-http-proxy=corp-mcp-http-proxy \
+  --target-http-proxy-region="${REGION}" --project="${PROJECT_ID}"
+
+gcloud compute service-attachments create corp-mcp-psc-attachment \
+  --region="${REGION}" --producer-forwarding-rule=corp-mcp-ilb-forwarding-rule \
+  --connection-preference=ACCEPT_AUTOMATIC --nat-subnets=corp-mcp-psc-nat-subnet \
+  --project="${PROJECT_ID}"
+```
+
+### 6. Build, Push & Promote Containers to Cloud Run
+```bash
+./deploy/promote_local_to_cloudrun.sh
 ```
