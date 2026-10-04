@@ -9,15 +9,53 @@ Demonstrates moving a multi-agent fleet (**Travel Router**, **Travel Planner**, 
 ## Architecture Highlights
 
 1. **Modular Python ADK & FastAPI (`/app`)**:
-   - Exposes `/health` and `/invoke` inside [`app/main.py`](./app/main.py).
+   - Exposes `/health`, `/invoke`, and the interactive **Zero-Trust Chat Console (`/`)** inside [`app/main.py`](./app/main.py).
    - Zero custom mTLS or JWT validation code in Python—the platform handles SPIFFE (`JWT-SVID`) verification via Google Security Token Service (STS) and egress enforcement.
 2. **Decoupled State & Memory**:
    - `MEMORYBANK_ID`: Dynamically injects user travel profiles into the Travel Planner Agent without hardcoding.
    - `SESSION_STORE_URI`: Persists multi-turn state externally so containers remain 100% stateless across local Docker and Cloud Run.
 3. **Zero-Trust Egress & Secure Corporate MCP**:
    - Outbound calls from the agent fleet traverse `agw-travel-secure`.
-   - Internal Corporate MCP Server calls traverse Private Service Connect (PSC) after SPIFFE `JWT-SVID` verification.
+   - Internal Corporate MCP Server calls traverse Private Service Connect (PSC) after SPIFFE `JWT-SVID` verification to enforce Q4 department budgets, cabin class rules, and OFAC country embargoes.
    - Simulated **Prompt Injection Exfiltration** attempts are actively blocked at the Agent Gateway perimeter and logged to Cloud Logging (teeing up the Datadog observability handoff).
+
+```mermaid
+flowchart TB
+    User["👤 Executive User (Alex Rivera)<br/>Browser Chat UI / CLI"]
+
+    subgraph CloudRun["Google Cloud Run — Stateless ADK Agent Fleet (us-central1)"]
+        Router["🧭 Travel Router Agent<br/>(travel-router)"]
+        Planner["✈️ Travel Planner Agent<br/>(travel-planner)"]
+        Policy["📋 Corporate Policy Agent<br/>(corporate-policy-agent)"]
+    end
+
+    subgraph StateLayer["Decoupled State & Memory"]
+        MemBank[("🧠 Vertex AI Memory Bank<br/>(MEMORYBANK_ID)")]
+        SessionDB[("🗄️ Cloud Firestore<br/>(SESSION_STORE_URI)")]
+    end
+
+    Gateway["🛡️ Agent Gateway (agw-travel-secure)<br/>SPIFFE JWT-SVID STS Check + Default DENY Egress"]
+
+    subgraph CorpVPC["Corporate VPC — Private Service Connect (PSC)"]
+        MCP["🏢 Corporate MCP Server + DB<br/>Budget Caps, Cabin Rules & OFAC Embargoes"]
+    end
+
+    AirlineAPI["🛫 Authorized Airline API<br/>(mock-airline-api)"]
+    Attacker["🏴‍☠️ Prompt Injection Exfil Target<br/>(attacker-analytics.io) — ❌ 403 BLOCKED"]
+
+    User --> Router
+    Router <--> SessionDB
+    Router -->|"A2A"| Planner
+    Router -->|"A2A"| Policy
+    Planner --> MemBank
+    Planner --> Gateway
+    Policy --> Gateway
+    Router -.->|"Exfil Attempt"| Gateway
+    Gateway -->|"✅ ALLOW"| AirlineAPI
+    Gateway -->|"✅ ALLOW (PSC)"| MCP
+    Gateway -.->|"🛑 403 DENY"| Attacker
+```
+*(See [`implementation_plan.md`](./implementation_plan.md) for the full detailed architecture and sequence diagrams.)*
 
 ---
 
