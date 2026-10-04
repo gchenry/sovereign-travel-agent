@@ -17,19 +17,24 @@ class TravelPlannerAgent:
     name: str = "travel_planner_agent"
     description: str = "Pulls traveler profile from MEMORYBANK_ID and searches flights via Airline API."
 
-    def run(self, user_id: str, destination: str = "HND") -> Dict[str, Any]:
+    def run(
+        self,
+        user_id: str,
+        destination: str = "HND",
+        requested_cabin: str | None = None,
+    ) -> Dict[str, Any]:
         """Execute travel planning workflow."""
         cfg = get_config()
         memory_bank = MemoryBankClient(cfg.memorybank_id)
         profile = memory_bank.get_traveler_profile(user_id)
 
         origin = profile.get("home_airport", "SFO")
-        preferred_cabin = profile.get("preferred_cabin", "Business")
+        cabin_to_search = requested_cabin or profile.get("preferred_cabin", "Business")
 
         flight_results = search_flights(
             origin=origin,
             destination=destination,
-            cabin_class=preferred_cabin,
+            cabin_class=cabin_to_search,
         )
 
         return {

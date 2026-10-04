@@ -22,9 +22,10 @@ class CorporatePolicyAgent:
         department: str,
         cabin_class: str,
         estimated_fare_usd: float,
+        destination: str = "HND",
         override_spiffe_id: str | None = None,
     ) -> Dict[str, Any]:
-        """Validate compliance and budget against internal Corporate MCP tools."""
+        """Validate compliance, embargoes, and budget against internal Corporate MCP tools."""
         policy_check = call_corporate_mcp_tool(
             tool_name="verify_travel_compliance",
             arguments={
@@ -32,6 +33,7 @@ class CorporatePolicyAgent:
                 "department": department,
                 "cabin_class": cabin_class,
                 "estimated_fare_usd": estimated_fare_usd,
+                "destination": destination,
             },
             override_spiffe_id=override_spiffe_id,
         )

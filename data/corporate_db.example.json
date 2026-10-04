@@ -4,6 +4,8 @@
     "max_economy_fare_usd": 1800.0,
     "remaining_q4_budget_usd": 18500.0,
     "allowed_cabins_international": ["Economy", "Premium Economy", "Business"],
+    "embargoed_countries": ["Iran", "North Korea", "Syria", "Cuba", "Russia"],
+    "embargoed_airports": ["IKA", "FNJ", "DAM", "HAV", "SVO"],
     "policy_id": "CORP-TRAVEL-ENG-2026"
   },
   "Field Engineering": {
@@ -11,6 +13,8 @@
     "max_economy_fare_usd": 1600.0,
     "remaining_q4_budget_usd": 12400.0,
     "allowed_cabins_international": ["Economy", "Premium Economy", "Business"],
+    "embargoed_countries": ["Iran", "North Korea", "Syria", "Cuba", "Russia"],
+    "embargoed_airports": ["IKA", "FNJ", "DAM", "HAV", "SVO"],
     "policy_id": "CORP-TRAVEL-FE-2026"
   }
 }

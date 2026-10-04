@@ -3,8 +3,10 @@
 Verifies:
 1. Stateless container `/health` endpoint & decoupled `MEMORYBANK_ID` / `SESSION_STORE_URI`.
 2. Authorized A2A routing & Corporate MCP tool execution through Agent Gateway.
-3. Blocking of an unauthorized/rogue agent SPIFFE identity at the Agent Gateway.
-4. Graceful handling of Agent Gateway 403 Egress rejections during a simulated
+3. Corporate MCP policy blocks embargoed destinations (e.g., Iran / IKA).
+4. Corporate MCP policy flags noncompliant cabin / fare cap violations (e.g., First Class / Zurich).
+5. Blocking of an unauthorized/rogue agent SPIFFE identity at the Agent Gateway.
+6. Graceful handling of Agent Gateway 403 Egress rejections during a simulated
    Prompt Injection exfiltration attempt.
 """
 
@@ -73,16 +75,16 @@ def fleet_endpoints() -> Iterator[Dict[str, str]]:
             "WORKLOAD_SPIFFE_ID": "spiffe://demo-sovereign-travel.svc.id.goog/ns/agent-engine/sa/travel-router-sa",
             "TRAVEL_PLANNER_URL": "in-process",
             "CORPORATE_POLICY_AGENT_URL": "in-process",
-            "MCP_SERVER_URL": "http://127.0.0.1:8090",
-            "AIRLINE_API_URL": "http://127.0.0.1:8091",
+            "MCP_SERVER_URL": "http://127.0.0.1:18090",
+            "AIRLINE_API_URL": "http://127.0.0.1:18091",
         }
     )
 
     procs = []
     with ExitStack() as stack:
         services_to_start = [
-            ("services.corporate_mcp.server:app", 8090),
-            ("services.mock_airline.app:app", 8091),
+            ("services.corporate_mcp.server:app", 18090),
+            ("services.mock_airline.app:app", 18091),
             ("services.mock_gateway.proxy:app", 18095),
             ("app.main:app", 18080),
         ]
@@ -108,8 +110,8 @@ def fleet_endpoints() -> Iterator[Dict[str, str]]:
                 procs.append(proc)
                 stack.callback(proc.terminate)
 
-        _wait_for_url("http://127.0.0.1:8090/health")
-        _wait_for_url("http://127.0.0.1:8091/health")
+        _wait_for_url("http://127.0.0.1:18090/health")
+        _wait_for_url("http://127.0.0.1:18091/health")
         _wait_for_url("http://127.0.0.1:18095/health")
         _wait_for_url("http://127.0.0.1:18080/health")
 
@@ -147,7 +149,36 @@ def test_2_authorized_multi_agent_routing_and_mcp(fleet_endpoints: Dict[str, str
     assert "APPROVED" in body["response"]
 
 
-def test_3_block_unauthorized_spiffe_agent_at_gateway(fleet_endpoints: Dict[str, str]) -> None:
+def test_3_embargoed_destination_blocked_by_mcp_policy(fleet_endpoints: Dict[str, str]) -> None:
+    """Verify Corporate MCP Policy blocks travel to embargoed countries (e.g., Iran / IKA)."""
+    payload = {
+        "prompt": "Book a business class flight to Tehran, Iran next week.",
+        "user_id": "exec-user-001",
+        "session_id": "sess-preflight-embargo",
+    }
+    resp = httpx.post(f"{fleet_endpoints['router_url']}/invoke", json=payload, timeout=10.0)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "POLICY_BLOCKED_EMBARGO"
+    assert "PROHIBITED_EMBARGO" in body["response"]
+    assert "Iran" in body["response"]
+
+
+def test_4_noncompliant_cabin_and_fare_flagged_by_mcp_policy(fleet_endpoints: Dict[str, str]) -> None:
+    """Verify Corporate MCP Policy flags First Class / over-cap fares for VP approval."""
+    payload = {
+        "prompt": "Book a First Class flight to Tokyo next Tuesday.",
+        "user_id": "exec-user-001",
+        "session_id": "sess-preflight-noncompliant",
+    }
+    resp = httpx.post(f"{fleet_endpoints['router_url']}/invoke", json=payload, timeout=10.0)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "POLICY_VIOLATION_REQUIRES_APPROVAL"
+    assert "REQUIRES_VP_APPROVAL" in body["response"]
+
+
+def test_5_block_unauthorized_spiffe_agent_at_gateway(fleet_endpoints: Dict[str, str]) -> None:
     """Verify Agent Gateway blocks an unauthorized agent SPIFFE identity via STS check."""
     payload = {
         "prompt": "Query corporate engineering budget for flight to Tokyo.",
@@ -162,7 +193,7 @@ def test_3_block_unauthorized_spiffe_agent_at_gateway(fleet_endpoints: Dict[str,
     assert "unverified workload SPIFFE identity" in body["response"]
 
 
-def test_4_graceful_handling_of_gateway_egress_block_on_prompt_injection(
+def test_6_graceful_handling_of_gateway_egress_block_on_prompt_injection(
     fleet_endpoints: Dict[str, str],
 ) -> None:
     """Verify Agent Gateway blocks prompt injection exfiltration & agent handles 403 gracefully."""

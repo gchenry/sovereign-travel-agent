@@ -31,7 +31,12 @@ class TravelRouterAgent:
         self.planner = TravelPlannerAgent()
         self.policy_agent = CorporatePolicyAgent()
 
-    def _invoke_planner(self, user_id: str, destination: str) -> Dict[str, Any]:
+    def _invoke_planner(
+        self,
+        user_id: str,
+        destination: str,
+        requested_cabin: str | None = None,
+    ) -> Dict[str, Any]:
         """Invoke Travel Planner Agent via A2A container endpoint or in-process fallback."""
         cfg = get_config()
         if cfg.travel_planner_url and cfg.travel_planner_url != "in-process":
@@ -40,14 +45,22 @@ class TravelRouterAgent:
                 with httpx.Client(timeout=8.0) as client:
                     resp = client.post(
                         target,
-                        json={"user_id": user_id, "destination": destination},
+                        json={
+                            "user_id": user_id,
+                            "destination": destination,
+                            "requested_cabin": requested_cabin,
+                        },
                         headers=get_cloud_run_headers(target),
                     )
                     if resp.status_code == 200:
                         return resp.json()
             except httpx.HTTPError:
                 pass
-        return self.planner.run(user_id=user_id, destination=destination)
+        return self.planner.run(
+            user_id=user_id,
+            destination=destination,
+            requested_cabin=requested_cabin,
+        )
 
     def _invoke_policy_agent(
         self,
@@ -55,6 +68,7 @@ class TravelRouterAgent:
         department: str,
         cabin_class: str,
         estimated_fare_usd: float,
+        destination: str = "HND",
         override_spiffe_id: str | None = None,
     ) -> Dict[str, Any]:
         """Invoke Corporate Policy Agent via A2A container endpoint or in-process fallback."""
@@ -70,6 +84,7 @@ class TravelRouterAgent:
                             "department": department,
                             "cabin_class": cabin_class,
                             "estimated_fare_usd": estimated_fare_usd,
+                            "destination": destination,
                             "override_spiffe_id": override_spiffe_id,
                         },
                         headers=get_cloud_run_headers(target),
@@ -83,17 +98,41 @@ class TravelRouterAgent:
             department=department,
             cabin_class=cabin_class,
             estimated_fare_usd=estimated_fare_usd,
+            destination=destination,
             override_spiffe_id=override_spiffe_id,
         )
 
     @staticmethod
     def _infer_destination(prompt: str) -> str:
         lower = prompt.lower()
-        if "london" in lower or "lhr" in lower:
+        if any(k in lower for k in ("iran", "tehran", "ika")):
+            return "IKA"
+        if any(k in lower for k in ("north korea", "pyongyang", "fnj")):
+            return "FNJ"
+        if any(k in lower for k in ("cuba", "havana", "hav")):
+            return "HAV"
+        if any(k in lower for k in ("syria", "damascus", "dam")):
+            return "DAM"
+        if any(k in lower for k in ("russia", "moscow", "svo")):
+            return "SVO"
+        if any(k in lower for k in ("zurich", "switzerland", "zrh")):
+            return "ZRH"
+        if any(k in lower for k in ("sydney", "australia", "syd")):
+            return "SYD"
+        if any(k in lower for k in ("london", "lhr")):
             return "LHR"
-        if "new york" in lower or "jfk" in lower:
+        if any(k in lower for k in ("new york", "jfk")):
             return "JFK"
         return "HND"  # Default demo destination: Tokyo Haneda
+
+    @staticmethod
+    def _infer_cabin(prompt: str) -> str | None:
+        lower = prompt.lower()
+        if "first class" in lower or "first-class" in lower:
+            return "First"
+        if "economy" in lower and "premium" not in lower:
+            return "Economy"
+        return None
 
     def execute(
         self,
@@ -109,9 +148,14 @@ class TravelRouterAgent:
 
         trace_steps: List[Dict[str, Any]] = []
         destination = self._infer_destination(prompt)
+        requested_cabin = self._infer_cabin(prompt)
 
         # Step 1: Delegate to Travel Planner Agent (Memory Bank + External Airline API)
-        planner_output = self._invoke_planner(user_id=user_id, destination=destination)
+        planner_output = self._invoke_planner(
+            user_id=user_id,
+            destination=destination,
+            requested_cabin=requested_cabin,
+        )
         trace_steps.append({"step": "a2a_travel_planner", "output": planner_output})
 
         profile = planner_output.get("traveler_profile", {})
@@ -121,7 +165,7 @@ class TravelRouterAgent:
             "flight_number": "PS-108",
             "origin": profile.get("home_airport", "SFO"),
             "destination": destination,
-            "cabin": profile.get("preferred_cabin", "Business"),
+            "cabin": requested_cabin or profile.get("preferred_cabin", "Business"),
             "price_usd": 4250.0,
         }
 
@@ -131,6 +175,7 @@ class TravelRouterAgent:
             department=profile.get("department", "Engineering"),
             cabin_class=selected_flight.get("cabin", "Business"),
             estimated_fare_usd=float(selected_flight.get("price_usd", 4250.0)),
+            destination=destination,
             override_spiffe_id=override_spiffe_id,
         )
         trace_steps.append({"step": "a2a_corporate_policy_mcp", "output": policy_output})
@@ -202,20 +247,38 @@ class TravelRouterAgent:
 
         compliance_data = mcp_result.get("result", {})
         approved = compliance_data.get("approved", True)
+        decision = compliance_data.get("decision", "APPROVED" if approved else "REQUIRES_VP_APPROVAL")
+        violations = compliance_data.get("violations", [])
         budget_remaining = compliance_data.get("remaining_q4_budget_usd", 18500.0)
 
-        summary = (
-            f"Prepared compliant itinerary for {profile.get('name')} ({profile.get('title')}): "
-            f"Flight {selected_flight.get('flight_number')} ({selected_flight.get('origin')} -> "
-            f"{selected_flight.get('destination')}, {selected_flight.get('cabin')}) at "
-            f"${selected_flight.get('price_usd'):,.2f}. Corporate MCP Policy Check: "
-            f"{'APPROVED' if approved else 'REQUIRES_VP_APPROVAL'} "
-            f"(Remaining Q4 Budget: ${budget_remaining:,.2f})."
-        )
+        if not approved:
+            violation_text = " | ".join(violations) if violations else "Exceeds corporate travel policy thresholds."
+            summary = (
+                f"Itinerary Flagged ({decision}) for {profile.get('name')}: "
+                f"Flight {selected_flight.get('flight_number')} ({selected_flight.get('origin')} -> "
+                f"{selected_flight.get('destination')}, {selected_flight.get('cabin')}) at "
+                f"${selected_flight.get('price_usd'):,.2f}. Corporate MCP Policy Check: {decision} — "
+                f"{violation_text}"
+            )
+            status_code = (
+                "POLICY_BLOCKED_EMBARGO"
+                if decision == "PROHIBITED_EMBARGO"
+                else "POLICY_VIOLATION_REQUIRES_APPROVAL"
+            )
+        else:
+            summary = (
+                f"Prepared compliant itinerary for {profile.get('name')} ({profile.get('title')}): "
+                f"Flight {selected_flight.get('flight_number')} ({selected_flight.get('origin')} -> "
+                f"{selected_flight.get('destination')}, {selected_flight.get('cabin')}) at "
+                f"${selected_flight.get('price_usd'):,.2f}. Corporate MCP Policy Check: "
+                f"APPROVED (Remaining Q4 Budget: ${budget_remaining:,.2f})."
+            )
+            status_code = "SUCCESS"
+
         session_store.append_turn(session_id, role="assistant", content=summary)
 
         return {
-            "status": "SUCCESS",
+            "status": status_code,
             "agent": self.name,
             "session_id": session_id,
             "session_store_uri": cfg.session_store_uri,

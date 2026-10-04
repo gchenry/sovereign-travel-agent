@@ -66,9 +66,13 @@ ALLOWED_EGRESS_HOSTS = {
     "corporate-mcp-server:8090",
     "localhost:8090",
     "127.0.0.1:8090",
+    "localhost:18090",
+    "127.0.0.1:18090",
     "mock-airline-api:8091",
     "localhost:8091",
     "127.0.0.1:8091",
+    "localhost:18091",
+    "127.0.0.1:18091",
 }
 
 

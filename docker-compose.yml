@@ -80,7 +80,7 @@ services:
       dockerfile: services/corporate_mcp/Dockerfile
     container_name: corporate-mcp-server
     ports:
-      - "8090:8090"
+      - "8092:8090"
     volumes:
       - ./data:/srv/data:ro
 

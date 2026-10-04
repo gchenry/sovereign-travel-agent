@@ -6,12 +6,15 @@ containers and Google Cloud Run / Vertex AI Reasoning Engine deployments.
 
 from typing import Any, Dict
 from fastapi import FastAPI
+from fastapi.responses import HTMLResponse
+import httpx
 from pydantic import BaseModel, Field
 
-from app.config import get_config
+from app.config import get_cloud_run_headers, get_config
 from app.agent import TravelRouterAgent
 from app.agents.travel_planner import TravelPlannerAgent
 from app.agents.corporate_policy import CorporatePolicyAgent
+from app.ui import CHAT_UI_HTML
 
 app = FastAPI(
     title="Sovereign Travel Agent Fleet (ADK + Agent Gateway)",
@@ -44,6 +47,7 @@ class PlannerA2ARequest(BaseModel):
 
     user_id: str = "exec-user-001"
     destination: str = "HND"
+    requested_cabin: str | None = None
 
 
 class PolicyA2ARequest(BaseModel):
@@ -53,7 +57,29 @@ class PolicyA2ARequest(BaseModel):
     department: str = "Engineering"
     cabin_class: str = "Business"
     estimated_fare_usd: float = 4250.0
+    destination: str = "HND"
     override_spiffe_id: str | None = None
+
+
+@app.get("/", response_class=HTMLResponse)
+def demo_chat_ui() -> str:
+    """Interactive Web Chat & Agent Gateway Governance Console."""
+    return CHAT_UI_HTML
+
+
+@app.get("/gateway-logs")
+def gateway_logs() -> Dict[str, Any]:
+    """Fetch recent Agent Gateway egress & SPIFFE audit events for the live UI."""
+    cfg = get_config()
+    target = f"{cfg.agent_gateway_url.rstrip('/')}/egress/logs"
+    try:
+        with httpx.Client(timeout=5.0) as client:
+            resp = client.get(target, headers=get_cloud_run_headers(target))
+            if resp.status_code == 200:
+                return resp.json()
+    except httpx.HTTPError:
+        pass
+    return {"events": []}
 
 
 @app.get("/health")
@@ -85,7 +111,11 @@ def invoke_agent(request: InvocationRequest) -> Dict[str, Any]:
 @app.post("/a2a/plan")
 def invoke_travel_planner(request: PlannerA2ARequest) -> Dict[str, Any]:
     """A2A endpoint when container is deployed as the `travel-planner` service."""
-    return planner_agent.run(user_id=request.user_id, destination=request.destination)
+    return planner_agent.run(
+        user_id=request.user_id,
+        destination=request.destination,
+        requested_cabin=request.requested_cabin,
+    )
 
 
 @app.post("/a2a/policy-check")
@@ -96,5 +126,6 @@ def invoke_corporate_policy(request: PolicyA2ARequest) -> Dict[str, Any]:
         department=request.department,
         cabin_class=request.cabin_class,
         estimated_fare_usd=request.estimated_fare_usd,
+        destination=request.destination,
         override_spiffe_id=request.override_spiffe_id,
     )
