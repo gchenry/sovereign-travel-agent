@@ -53,8 +53,15 @@ Provision the GCP infrastructure and promote the validated local containers to A
 ./deploy/promote_local_to_cloudrun.sh
 ```
 
-### 4. Live Egress Block & Prompt Injection Demo (`00:32 - 00:35`)
-Run the interactive scenario runner (locally or against your deployed Cloud Run fleet via `TARGET_ROUTER_URL` and `TARGET_GATEWAY_URL`):
+### 4. Interactive Web Chat Console & Live Egress Block Demo (`00:32 - 00:35`)
+Open the **Zero-Trust Web Chat & Governance Console** in your browser:
+- **Local Docker**: `http://localhost:8085/`
+- **Cloud Run (via authenticated proxy)**:
+  ```bash
+  gcloud run services proxy travel-router --region=us-central1 --port=8090
+  # Then open http://localhost:8090/
+  ```
+Or run the 5-scenario CLI walkthrough runner (Compliant Booking, OFAC Embargo Block for Iran, Noncompliant First Class / Fare Cap, Rogue SPIFFE ID `403`, and Prompt Injection Exfiltration `403`):
 ```bash
 .venv/bin/python scripts/run_demo_scenarios.py
 ```

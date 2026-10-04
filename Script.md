@@ -16,12 +16,21 @@ cd /usr/local/google/home/gchenry/.gemini/jetski/scratch/sovereign-travel-agent
 set -a && source .env && set +a
 ```
 
-Open these **5 Google Cloud Console tabs** in your browser ahead of time:
-1. **Cloud Run Services List**: `https://console.cloud.google.com/run?project=${GOOGLE_CLOUD_PROJECT}`
-2. **Artifact Registry (`sovereign-travel-repo`)**: `https://console.cloud.google.com/artifacts/docker/${GOOGLE_CLOUD_PROJECT}/us-central1/sovereign-travel-repo?project=${GOOGLE_CLOUD_PROJECT}`
-3. **Private Service Connect (`corp-mcp-psc-attachment`)**: `https://console.cloud.google.com/net-services/psc/list/publishedServices?project=${GOOGLE_CLOUD_PROJECT}`
-4. **Cloud Firestore (`agent-session-store` & `corp-travel-db`)**: `https://console.cloud.google.com/firestore/databases?project=${GOOGLE_CLOUD_PROJECT}`
-5. **Cloud Logging (Logs Explorer)**: `https://console.cloud.google.com/logs/query?project=${GOOGLE_CLOUD_PROJECT}`
+*(Optional — Start the Cloud Run authenticated proxy in a background terminal tab to use the Interactive Web Chat Console against Cloud Run)*:
+```bash
+gcloud run services proxy travel-router \
+  --region=us-central1 \
+  --project="${GOOGLE_CLOUD_PROJECT}" \
+  --port=8090
+```
+
+Open these **browser tabs** ahead of time:
+1. **Interactive Web Chat Console (Cloud Run)**: `http://localhost:8090/` *(or Local Docker at `http://localhost:8085/`)*
+2. **Cloud Run Services List**: `https://console.cloud.google.com/run?project=${GOOGLE_CLOUD_PROJECT}`
+3. **Artifact Registry (`sovereign-travel-repo`)**: `https://console.cloud.google.com/artifacts/docker/${GOOGLE_CLOUD_PROJECT}/us-central1/sovereign-travel-repo?project=${GOOGLE_CLOUD_PROJECT}`
+4. **Private Service Connect (`corp-mcp-psc-attachment`)**: `https://console.cloud.google.com/net-services/psc/list/publishedServices?project=${GOOGLE_CLOUD_PROJECT}`
+5. **Cloud Firestore (`agent-session-store` & `corp-travel-db`)**: `https://console.cloud.google.com/firestore/databases?project=${GOOGLE_CLOUD_PROJECT}`
+6. **Cloud Logging (Logs Explorer)**: `https://console.cloud.google.com/logs/query?project=${GOOGLE_CLOUD_PROJECT}`
 
 ---
 
@@ -45,10 +54,10 @@ Open these **5 Google Cloud Console tabs** in your browser ahead of time:
 
 ### 🖥️ What to Show on Screen
 1. **Slide / Diagram**: *The Travel & Expense Sovereign Fleet Architecture Diagram* (or open `README.md` / `implementation_plan.md` Mermaid diagram).
-2. **Google Cloud Console Tab 1 — Cloud Run Services**:
+2. **Google Cloud Console Tab — Cloud Run Services**:
    - **Console Path**: *Navigation Menu -> Cloud Run -> Services* (`https://console.cloud.google.com/run`)
    - Point out the distinct services running in `us-central1`:
-     - `travel-router` (Orchestrator Agent)
+     - `travel-router` (Orchestrator Agent + Zero-Trust Chat Console)
      - `travel-planner` (Travel Planner Sub-Agent)
      - `corporate-policy-agent` (Corporate Policy Sub-Agent)
      - `corporate-mcp-server` (Internal Corporate MCP Tool Server)
@@ -59,7 +68,7 @@ Open these **5 Google Cloud Console tabs** in your browser ahead of time:
 >
 > 1. **The Travel Router Agent (`travel-router`)**: The orchestrator that receives the user's request and delegates across the fleet.
 > 2. **The Travel Planner Agent (`travel-planner`)**: Pulls the user's travel preferences dynamically from a decoupled **Vertex AI Memory Bank (`MEMORYBANK_ID`)** and searches external airline APIs for flights.
-> 3. **The Corporate Policy Agent (`corporate-policy-agent`)**: Queries our internal corporate compliance database via a **Model Context Protocol (MCP)** tool server to enforce Q4 department budgets.
+> 3. **The Corporate Policy Agent (`corporate-policy-agent`)**: Queries our internal corporate compliance database via a **Model Context Protocol (MCP)** tool server to enforce Q4 department budgets, cabin class rules, and OFAC country embargoes.
 >
 > Notice the structural game-changer sitting directly in the outbound traffic lane of our agents: **Agent Gateway (`agw-travel-secure`)**. Rather than hardcoding proxies or custom security interceptors inside our Python containers, the platform dynamically intercepts, validates, and governs every user-to-agent, agent-to-agent, and agent-to-tool call."
 
@@ -68,7 +77,7 @@ Open these **5 Google Cloud Console tabs** in your browser ahead of time:
 ## 🟨 00:15 – 00:25 | Segment 3: Zero-Trust Egress, SPIFFE Identities, and Securing MCP
 
 ### 🖥️ What to Show on Screen
-1. **Google Cloud Console Tab 3 — Private Service Connect**:
+1. **Google Cloud Console Tab — Private Service Connect**:
    - **Console Path**: *Network Services -> Private Service Connect -> Published services* (`https://console.cloud.google.com/net-services/psc/list/publishedServices`)
    - Highlight `corp-mcp-psc-attachment` backed by `corp-mcp-ilb-forwarding-rule` inside `corp-sovereign-vpc`.
 2. **IDE File**: Open [`deploy/agent_gateway_policy.yaml`](./deploy/agent_gateway_policy.yaml)
@@ -94,9 +103,10 @@ Open these **5 Google Cloud Console tabs** in your browser ahead of time:
 ### Demo Part 4A (`00:25 – 00:27`): The Repository & Local Stateless Containers (2 Mins)
 
 #### 🖥️ What to Show on Screen
-1. **IDE File 1**: [`app/main.py`](./app/main.py) (Highlight `/health` on line 57 and `/invoke` on line 71 — point out there are zero custom JWT or mTLS middleware imports).
+1. **IDE File 1**: [`app/main.py`](./app/main.py) (Highlight `/health` on line 83 and `/invoke` on line 98 — point out there are zero custom JWT or mTLS middleware imports).
 2. **IDE File 2**: [`app/config.py`](./app/config.py) (Highlight `MEMORYBANK_ID` and `SESSION_STORE_URI` loaded from environment variables).
 3. **IDE File 3**: [`docker-compose.yml`](./docker-compose.yml) (Show the 3 agent containers + local `mock-agent-gateway` container).
+4. **Browser**: Briefly show the local Web Chat Console at `http://localhost:8085/`.
 
 #### ⌨️ Commands to Execute
 ```bash
@@ -114,7 +124,7 @@ curl -s http://localhost:8085/health | python3 -m json.tool
 ```
 
 #### 🎙️ Talk Track
-> "Let's jump into the code. Notice how clean our `/app` directory is. Inside `app/main.py`, we have a lightweight FastAPI wrapper around our modular Python ADK agents exposing `/health` and `/invoke`. There are no bulky third-party security libraries or 50-line JWT middleware classes here—the container is pure business logic.
+> "Let's jump into the code. Notice how clean our `/app` directory is. Inside `app/main.py`, we have a lightweight FastAPI wrapper around our modular Python ADK agents exposing `/health` and `/invoke`, plus a built-in Zero-Trust Chat Console at `/`. There are no bulky third-party security libraries or 50-line JWT middleware classes here—the container is pure business logic.
 >
 > To make sure these containers can move seamlessly from a developer's laptop to Cloud Run, they are completely stateless. Looking at `app/config.py` and the `/health` output, user travel profiles are injected dynamically via `MEMORYBANK_ID`, and conversation turns are persisted externally via `SESSION_STORE_URI`.
 >
@@ -125,7 +135,7 @@ curl -s http://localhost:8085/health | python3 -m json.tool
 ### Demo Part 4B (`00:27 – 00:29`): Pre-Flight Evaluation (`agy test`) (2 Mins)
 
 #### 🖥️ What to Show on Screen
-- **IDE File**: [`tests/test_pre_flight.py`](./tests/test_pre_flight.py) (Briefly show the 4 test functions).
+- **IDE File**: [`tests/test_pre_flight.py`](./tests/test_pre_flight.py) (Briefly show the 6 test functions).
 - **Terminal**: Run `./scripts/agy test`.
 
 #### ⌨️ Commands to Execute
@@ -140,7 +150,8 @@ curl -s http://localhost:8085/health | python3 -m json.tool
 > Watch what this pre-flight evaluation verifies against our local mock gateway:
 > 1. It confirms `/health` and our decoupled `MEMORYBANK_ID` and `SESSION_STORE_URI` bindings.
 > 2. It tests end-to-end A2A routing from the Travel Router to the Travel Planner and Corporate Policy MCP Server.
-> 3. Most importantly, it simulates a `403 Forbidden` rejection from the Agent Gateway and verifies that our agent code catches and handles Gateway rejections gracefully without crashing the container. All four pre-flight checks pass."
+> 3. It verifies that the Corporate MCP Server enforces OFAC country embargoes (blocking flights to Iran) and flags noncompliant First Class / over-budget fares for VP approval.
+> 4. Most importantly, it simulates `403 Forbidden` rejections from the Agent Gateway—both for an unauthorized SPIFFE identity and a prompt injection exfiltration attempt—verifying that our agent code catches and handles Gateway rejections gracefully without crashing the container. All six pre-flight checks pass."
 
 ---
 
@@ -157,11 +168,10 @@ curl -s http://localhost:8085/health | python3 -m json.tool
      }
      ```
 2. **IDE File 2**: [`deploy/promote_local_to_cloudrun.sh`](./deploy/promote_local_to_cloudrun.sh)
-3. **Google Cloud Console Tab 2 & Tab 1**:
+3. **Google Cloud Console Tabs**:
    - Show **Artifact Registry** (`sovereign-travel-repo`) containing the pushed container images.
    - Show **Cloud Run** with all services green and deployed in `us-central1`.
-4. **Google Cloud Console Tab 4 — Cloud Firestore**:
-   - Show `agent-session-store` and `corp-travel-db` backing the stateless containers.
+   - Show **Cloud Firestore** (`agent-session-store` and `corp-travel-db`) backing the stateless containers.
 
 #### ⌨️ Commands to Execute
 ```bash
@@ -185,11 +195,13 @@ gcloud run services list --region=us-central1
 
 ---
 
-### Demo Part 4D (`00:32 – 00:35`): Live Test — The Egress Block on Cloud Run (3 Mins)
+### Demo Part 4D (`00:32 – 00:35`): Live Test — Interactive Chat Console & Egress Block on Cloud Run (3 Mins)
 
 #### 🖥️ What to Show on Screen
-1. **Terminal**: Run `scripts/run_demo_scenarios.py` against the live **Cloud Run** endpoints.
-2. **Google Cloud Console Tab 5 — Cloud Logging (Logs Explorer)**:
+1. **Browser Tab 1 — Interactive Web Chat Console (`http://localhost:8090/` or `http://localhost:8085/`)**:
+   - Click the 5 one-click scenario buttons (`1. Compliant Flight`, `2. Embargoed (Iran)`, `3. Over Cap / 1st Class`, `4. Rogue SPIFFE (403)`, `5. Prompt Injection (403)`) or type custom prompts in the chat box while showing the live **Multi-Agent A2A & Egress Trace** and **Agent Gateway Security Audit Logs** in the right-hand panel.
+2. **Terminal (Alternative / Companion CLI Runner)**: Run `scripts/run_demo_scenarios.py` against the live **Cloud Run** endpoints.
+3. **Google Cloud Console Tab — Cloud Logging (Logs Explorer)**:
    - **Console Path**: *Observability -> Logging -> Logs Explorer* (`https://console.cloud.google.com/logs/query`)
    - Query to paste in Logs Explorer:
      ```text
@@ -200,7 +212,7 @@ gcloud run services list --region=us-central1
 
 #### ⌨️ Commands to Execute
 ```bash
-# Execute the 3 live scenarios directly against the deployed Cloud Run fleet
+# Execute the 5 live scenarios directly against the deployed Cloud Run fleet
 ROUTER_URL="$(gcloud run services describe travel-router --region=us-central1 --format='value(status.url)')"
 GATEWAY_URL="$(gcloud run services describe agw-travel-secure --region=us-central1 --format='value(status.url)')"
 
@@ -210,13 +222,17 @@ TARGET_GATEWAY_URL="${GATEWAY_URL}" \
 ```
 
 #### 🎙️ Talk Track
-> "Let's test our live Cloud Run deployment across three real-world scenarios.
+> "Let's test our live Cloud Run deployment across five real-world scenarios in our Zero-Trust Chat Console and CLI runner.
 >
-> **In Scenario 1**, a user asks to book a business-class flight to Tokyo and verify Q4 engineering budget compliance. The **Travel Router** pulls Alex Rivera's profile from `MEMORYBANK_ID`, fetches flight `PS-108` from the authorized Airline API, and calls the internal **Corporate MCP Server** over Private Service Connect. The **Agent Gateway** intercepts both outbound calls, verifies the agents' **SPIFFE `JWT-SVID` tokens** via Google STS, and allows the traffic.
+> **In Scenario 1 (Compliant Booking)**, Alex Rivera asks to book a business-class flight to Tokyo and verify Q4 engineering budget compliance. The **Travel Router** pulls Alex's profile from `MEMORYBANK_ID`, fetches flight `PS-108` (`$4,250`) from the authorized Airline API, and calls the internal **Corporate MCP Server** over Private Service Connect. Both outbound hops pass **SPIFFE `JWT-SVID`** verification at the **Agent Gateway**, and the itinerary is `APPROVED`.
 >
-> **In Scenario 2**, we simulate an unauthorized agent presenting an unverified SPIFFE identity (`spiffe://rogue-workload.external/...`). The **Agent Gateway** rejects the token exchange at the perimeter and blocks access to the Corporate MCP server.
+> **In Scenario 2 (OFAC Embargo Block)**, the user asks to book a flight to **Tehran, Iran (`IKA`)**. The Corporate Policy Agent queries our internal MCP server over PSC, which immediately blocks the itinerary (`POLICY_BLOCKED_EMBARGO`) under corporate export and sanctions rules.
 >
-> **Now look at Scenario 3 — the Prompt Injection Attack**: The user's prompt tries to trick the agent into forwarding executive traveler profiles and corporate card details to an external server (`https://exfil-vault.attacker-analytics.io/collect`).
+> **In Scenario 3 (Noncompliant Cabin & Fare Cap)**, the user requests a **First Class** ticket to Tokyo (`$9,850`) or an over-cap Business route like Zurich (`$6,850`). The Corporate MCP Server flags the violation (`REQUIRES_VP_APPROVAL`) because First Class is prohibited and exceeds the `$5,500` cap.
+>
+> **In Scenario 4 (Rogue Workload SPIFFE Identity)**, we simulate an unauthorized agent presenting an unverified SPIFFE identity (`spiffe://rogue-workload.external/...`). The **Agent Gateway** rejects the token exchange via Google STS (`403`) before it ever reaches our Corporate MCP server.
+>
+> **Now look at Scenario 5 — the Prompt Injection Attack**: The user's prompt tries to trick the agent into forwarding executive traveler profiles and corporate card details to an external server (`https://exfil-vault.attacker-analytics.io/collect`).
 >
 > Watch what happens: Even when the agent attempts the outbound tool call, **Agent Gateway (`agw-travel-secure`)** intercepts the packet, sees that `attacker-analytics.io` is outside our authorized egress perimeter, **actively blocks the exfiltration attempt with a 403**, and immediately emits a structured security violation event to Cloud Logging—while our Travel Router handles the rejection gracefully!"
 
