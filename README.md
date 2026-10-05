@@ -117,6 +117,7 @@ export REGION="us-central1"
 
 gcloud services enable \
   aiplatform.googleapis.com \
+  networkservices.googleapis.com \
   run.googleapis.com \
   artifactregistry.googleapis.com \
   cloudbuild.googleapis.com \
@@ -225,7 +226,7 @@ gcloud compute service-attachments create corp-mcp-psc-attachment \
   --project="${PROJECT_ID}"
 ```
 
-### 6. Vertex AI Reasoning Engine & Memory Bank (`MEMORYBANK_ID`)
+### 6. Vertex AI Reasoning Engine, Memory Bank (`MEMORYBANK_ID`) & Network Services Agent Gateway (`agw-travel-secure`)
 ```bash
 ADC_TOKEN="$(gcloud auth application-default print-access-token)"
 
@@ -248,6 +249,21 @@ curl -X POST \
     "fact": "User exec-user-001 (Alex Rivera, VP of Global Engineering) prefers Business Class, Window seat (A/K), Vegetarian meal, home airport SFO, Pacific Star Airlines.",
     "scope": {"user_id": "exec-user-001"}
   }'
+
+# Provision the Google Cloud Network Services AgentGateway (AGENT_TO_ANYWHERE / MCP)
+gcloud network-services agent-gateways import agw-travel-secure \
+  --location="${REGION}" \
+  --project="${PROJECT_ID}" \
+  --quiet << 'EOF'
+description: Zero-Trust Egress Gateway for the Travel & Expense Sovereign Fleet
+labels:
+  pillar: govern
+  environment: production
+googleManaged:
+  governedAccessPath: AGENT_TO_ANYWHERE
+protocols:
+  - MCP
+EOF
 ```
 
 ### 7. Build, Push & Promote Containers to Cloud Run

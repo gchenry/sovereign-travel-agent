@@ -21,8 +21,8 @@ flowchart TB
         SessionDB[("🗄️ Cloud Firestore<br/>(SESSION_STORE_URI)<br/>agent-session-store")]
     end
 
-    subgraph GovernancePerimeter["Google Cloud Agent Gateway (Egress Mode)"]
-        Gateway["🛡️ Agent Gateway<br/>(agw-travel-secure)<br/>• SPIFFE JWT-SVID Validation via Google STS<br/>• Default DENY Egress Policy<br/>• Structured Cloud Logging Audit"]
+    subgraph GovernancePerimeter["Google Cloud Network Services — Agent Gateway (AGENT_TO_ANYWHERE)"]
+        Gateway["🛡️ Agent Gateway (agw-travel-secure)<br/>networkservices.googleapis.com/AgentGateway<br/>• Governed Path: AGENT_TO_ANYWHERE (MCP)<br/>• SPIFFE JWT-SVID Validation via Google STS<br/>• Default DENY Egress + mTLS PSC Endpoint"]
         STS["🔐 Google Security Token Service (STS)<br/>Trust Domain: PROJECT_ID.svc.id.goog"]
     end
 

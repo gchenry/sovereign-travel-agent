@@ -26,11 +26,12 @@ gcloud run services proxy travel-router \
 
 Open these **browser tabs** ahead of time:
 1. **Interactive Web Chat Console (Cloud Run)**: `http://localhost:8090/` *(or Local Docker at `http://localhost:8085/`)*
-2. **Cloud Run Services List**: `https://console.cloud.google.com/run?project=${GOOGLE_CLOUD_PROJECT}`
-3. **Artifact Registry (`sovereign-travel-repo`)**: `https://console.cloud.google.com/artifacts/docker/${GOOGLE_CLOUD_PROJECT}/us-central1/sovereign-travel-repo?project=${GOOGLE_CLOUD_PROJECT}`
-4. **Private Service Connect (`corp-mcp-psc-attachment`)**: `https://console.cloud.google.com/net-services/psc/list/publishedServices?project=${GOOGLE_CLOUD_PROJECT}`
-5. **Cloud Firestore (`agent-session-store` & `corp-travel-db`)**: `https://console.cloud.google.com/firestore/databases?project=${GOOGLE_CLOUD_PROJECT}`
-6. **Cloud Logging (Logs Explorer)**: `https://console.cloud.google.com/logs/query?project=${GOOGLE_CLOUD_PROJECT}`
+2. **Network Services — Agent Gateway (`agw-travel-secure`)**: `https://console.cloud.google.com/net-services/agent-gateway/list?project=${GOOGLE_CLOUD_PROJECT}`
+3. **Cloud Run Services List**: `https://console.cloud.google.com/run?project=${GOOGLE_CLOUD_PROJECT}`
+4. **Artifact Registry (`sovereign-travel-repo`)**: `https://console.cloud.google.com/artifacts/docker/${GOOGLE_CLOUD_PROJECT}/us-central1/sovereign-travel-repo?project=${GOOGLE_CLOUD_PROJECT}`
+5. **Private Service Connect (`corp-mcp-psc-attachment`)**: `https://console.cloud.google.com/net-services/psc/list/publishedServices?project=${GOOGLE_CLOUD_PROJECT}`
+6. **Cloud Firestore (`agent-session-store` & `corp-travel-db`)**: `https://console.cloud.google.com/firestore/databases?project=${GOOGLE_CLOUD_PROJECT}`
+7. **Cloud Logging (Logs Explorer)**: `https://console.cloud.google.com/logs/query?project=${GOOGLE_CLOUD_PROJECT}`
 
 ---
 
@@ -54,14 +55,17 @@ Open these **browser tabs** ahead of time:
 
 ### 🖥️ What to Show on Screen
 1. **Slide / Diagram**: *The Travel & Expense Sovereign Fleet Architecture Diagram* (or open `README.md` / `implementation_plan.md` Mermaid diagram).
-2. **Google Cloud Console Tab — Cloud Run Services**:
+2. **Google Cloud Console Tab — Network Services -> Agent Gateway**:
+   - **Console Path**: *Network Services -> Agent Gateway* (`https://console.cloud.google.com/net-services/agent-gateway/list`)
+   - Highlight `agw-travel-secure` in `us-central1` (`governedAccessPath: AGENT_TO_ANYWHERE`, protocol `MCP`, and its Google-managed `mtlsEndpoint` PSC service attachment).
+3. **Google Cloud Console Tab — Cloud Run Services**:
    - **Console Path**: *Navigation Menu -> Cloud Run -> Services* (`https://console.cloud.google.com/run`)
    - Point out the distinct services running in `us-central1`:
      - `travel-router` (Orchestrator Agent + Zero-Trust Chat Console)
      - `travel-planner` (Travel Planner Sub-Agent)
      - `corporate-policy-agent` (Corporate Policy Sub-Agent)
      - `corporate-mcp-server` (Internal Corporate MCP Tool Server)
-     - `agw-travel-secure` (Agent Gateway in Egress Mode)
+     - `agw-travel-secure` (Agent Gateway Data-Plane Enforcement Service bound to the Network Services `AgentGateway` control-plane resource)
 
 ### 🎙️ Talk Track
 > "Let's map out the **Travel & Expense Sovereign Fleet** we're building today. Instead of one monolithic agent doing everything, we break the system into three specialized, autonomous agents running as stateless containers:
