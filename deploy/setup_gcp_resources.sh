@@ -36,6 +36,7 @@ echo "========================================================================"
 echo "==> [1/7] Enabling required Google Cloud APIs..."
 gcloud services enable \
   aiplatform.googleapis.com \
+  networkservices.googleapis.com \
   run.googleapis.com \
   artifactregistry.googleapis.com \
   cloudbuild.googleapis.com \
@@ -268,6 +269,25 @@ if [[ -n "${RE_ID}" ]]; then
       "fact": "User exec-user-001 (Alex Rivera, VP of Global Engineering) prefers Business Class, Window seat (A/K), Vegetarian meal, home airport SFO, Pacific Star Airlines.",
       "scope": {"user_id": "exec-user-001"}
     }' >/dev/null || true
+fi
+
+if ! gcloud network-services agent-gateways describe "${GATEWAY_NAME}" --location="${REGION}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
+  echo "    Provisioning Google Cloud Network Services AgentGateway (${GATEWAY_NAME})..."
+  gcloud network-services agent-gateways import "${GATEWAY_NAME}" \
+    --location="${REGION}" \
+    --project="${PROJECT_ID}" \
+    --quiet << 'EOF'
+description: Zero-Trust Egress Gateway for the Travel & Expense Sovereign Fleet
+labels:
+  pillar: govern
+  environment: production
+googleManaged:
+  governedAccessPath: AGENT_TO_ANYWHERE
+protocols:
+  - MCP
+EOF
+else
+  echo "    Network Services AgentGateway ${GATEWAY_NAME} already exists."
 fi
 
 sed "s/YOUR_PROJECT_ID/${PROJECT_ID}/g" deploy/agent_gateway_policy.yaml > deploy/agent_gateway_policy.resolved.yaml
