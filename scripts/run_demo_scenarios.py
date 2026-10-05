@@ -138,6 +138,24 @@ def main() -> None:
         print(f"{BOLD}Target Travel Router Endpoint:{RESET} {router_url}")
         print(f"{BOLD}Target Agent Gateway Endpoint:{RESET} {gateway_url}")
 
+        try:
+            gw_health = httpx.get(
+                f"{gateway_url}/health",
+                headers=gateway_headers,
+                timeout=30.0,
+            ).json()
+            httpx.get(
+                f"{router_url}/health",
+                headers=router_headers,
+                timeout=30.0,
+            )
+            cp = gw_health.get("network_services_control_plane", {})
+            print(f"{BOLD}Agent Gateway Resource:{RESET}        {gw_health.get('gateway_resource')}")
+            if cp.get("mtls_endpoint"):
+                print(f"{BOLD}GCP Network Services mTLS PSC:{RESET} {cp.get('mtls_endpoint')}")
+        except Exception:
+            pass
+
         print(f"\n{BOLD}{CYAN}============================================================================={RESET}")
         print(f"{BOLD}{CYAN}  SCENARIO 1: Authorized Travel & Expense Request (SPIFFE + PSC Verified){RESET}")
         print(f"{BOLD}{CYAN}============================================================================={RESET}")
@@ -147,9 +165,10 @@ def main() -> None:
             f"{router_url}/invoke",
             json={"prompt": valid_prompt, "user_id": "exec-user-001", "session_id": "demo-live-001"},
             headers=router_headers,
-            timeout=20.0,
+            timeout=45.0,
         ).json()
         print(f"{GREEN}✔ Status:{RESET} {resp1['status']}")
+        print(f"{GREEN}✔ Agent Gateway Used:{RESET} {resp1['agent_gateway']}")
         print(f"{GREEN}✔ Memory Bank Mounted:{RESET} {resp1['memorybank_id']}")
         print(f"{GREEN}✔ Session Store URI:{RESET} {resp1['session_store_uri']}")
         print(f"{GREEN}✔ Agent Response:{RESET} {resp1['response']}\n")
@@ -163,9 +182,9 @@ def main() -> None:
             f"{router_url}/invoke",
             json={"prompt": embargo_prompt, "user_id": "exec-user-001", "session_id": "demo-live-embargo"},
             headers=router_headers,
-            timeout=20.0,
+            timeout=45.0,
         ).json()
-        print(f"{RED}✖ Compliance Status:{RESET} {resp_embargo['status']}")
+        print(f"{RED}✖ Compliance Status:{RESET} {resp_embargo['status']} (Routed via {resp_embargo['agent_gateway']})")
         print(f"{YELLOW}➜ Agent Response:{RESET} {resp_embargo['response']}\n")
 
         print(f"{BOLD}{CYAN}============================================================================={RESET}")
@@ -177,9 +196,9 @@ def main() -> None:
             f"{router_url}/invoke",
             json={"prompt": noncompliant_prompt, "user_id": "exec-user-001", "session_id": "demo-live-nc"},
             headers=router_headers,
-            timeout=20.0,
+            timeout=45.0,
         ).json()
-        print(f"{YELLOW}⚠ Compliance Status:{RESET} {resp_nc['status']}")
+        print(f"{YELLOW}⚠ Compliance Status:{RESET} {resp_nc['status']} (Routed via {resp_nc['agent_gateway']})")
         print(f"{YELLOW}➜ Agent Response:{RESET} {resp_nc['response']}\n")
 
         print(f"{BOLD}{CYAN}============================================================================={RESET}")
@@ -195,9 +214,9 @@ def main() -> None:
                 "override_spiffe_id": "spiffe://rogue-workload.external/ns/default/sa/untrusted-agent",
             },
             headers=router_headers,
-            timeout=20.0,
+            timeout=45.0,
         ).json()
-        print(f"{RED}✖ Gateway Enforcement Status:{RESET} {resp2['status']}")
+        print(f"{RED}✖ Gateway Enforcement Status:{RESET} {resp2['status']} (Enforced by {resp2['agent_gateway']})")
         print(f"{YELLOW}➜ Graceful Agent Response:{RESET} {resp2['response']}\n")
 
         print(f"{BOLD}{CYAN}============================================================================={RESET}")
@@ -212,7 +231,7 @@ def main() -> None:
             f"{router_url}/invoke",
             json={"prompt": injection_prompt, "user_id": "exec-user-001", "session_id": "demo-live-003"},
             headers=router_headers,
-            timeout=20.0,
+            timeout=45.0,
         ).json()
         print(f"{RED}🛡️ Platform Action:{RESET} {resp3['status']} (Enforced by {resp3['agent_gateway']})")
         print(f"{YELLOW}➜ Graceful Agent Response:{RESET} {resp3['response']}\n")
@@ -224,9 +243,9 @@ def main() -> None:
             logs_resp = httpx.get(
                 f"{gateway_url}/egress/logs",
                 headers=gateway_headers,
-                timeout=10.0,
+                timeout=15.0,
             ).json()
-            for event in logs_resp.get("events", [])[-3:]:
+            for event in logs_resp.get("events", [])[-4:]:
                 print(json.dumps(event, indent=2))
         except httpx.HTTPError:
             pass

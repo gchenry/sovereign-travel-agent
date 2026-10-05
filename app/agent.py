@@ -42,7 +42,7 @@ class TravelRouterAgent:
         if cfg.travel_planner_url and cfg.travel_planner_url != "in-process":
             target = f"{cfg.travel_planner_url.rstrip('/')}/a2a/plan"
             try:
-                with httpx.Client(timeout=8.0) as client:
+                with httpx.Client(timeout=25.0) as client:
                     resp = client.post(
                         target,
                         json={
@@ -76,7 +76,7 @@ class TravelRouterAgent:
         if cfg.corporate_policy_agent_url and cfg.corporate_policy_agent_url != "in-process":
             target = f"{cfg.corporate_policy_agent_url.rstrip('/')}/a2a/policy-check"
             try:
-                with httpx.Client(timeout=8.0) as client:
+                with httpx.Client(timeout=25.0) as client:
                     resp = client.post(
                         target,
                         json={

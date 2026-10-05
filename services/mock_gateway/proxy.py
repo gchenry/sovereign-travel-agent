@@ -87,6 +87,62 @@ def _get_allowed_egress_hosts() -> Set[str]:
 
 
 _AUDIT_LOG_BUFFER: List[Dict[str, Any]] = []
+_CACHED_CONTROL_PLANE_CARD: Dict[str, Any] | None = None
+
+
+def _get_gcp_access_token() -> str | None:
+    """Obtain an OAuth2 access token from Cloud Run Metadata Server or local gcloud ADC."""
+    metadata_token_url = (
+        "http://metadata.google.internal/computeMetadata/v1/instance/"
+        "service-accounts/default/token"
+    )
+    try:
+        with httpx.Client(timeout=1.5) as client:
+            resp = client.get(metadata_token_url, headers={"Metadata-Flavor": "Google"})
+            if resp.status_code == 200:
+                return resp.json().get("access_token")
+    except Exception:
+        pass
+    return None
+
+
+def _get_network_services_gateway_card() -> Dict[str, Any]:
+    """Fetch live Google Cloud Network Services AgentGateway control-plane metadata."""
+    global _CACHED_CONTROL_PLANE_CARD
+    if _CACHED_CONTROL_PLANE_CARD is not None:
+        return _CACHED_CONTROL_PLANE_CARD
+
+    gateway_resource = _get_gateway_resource()
+    token = _get_gcp_access_token()
+    if token and not gateway_resource.startswith("projects/YOUR_PROJECT_ID"):
+        url = f"https://networkservices.googleapis.com/v1/{gateway_resource}"
+        try:
+            with httpx.Client(timeout=3.0) as client:
+                resp = client.get(url, headers={"Authorization": f"Bearer {token}"})
+                if resp.status_code == 200:
+                    data = resp.json()
+                    card = data.get("agentGatewayCard", {})
+                    _CACHED_CONTROL_PLANE_CARD = {
+                        "control_plane_verified": True,
+                        "resource_name": data.get("name", gateway_resource),
+                        "governed_access_path": data.get("googleManaged", {}).get(
+                            "governedAccessPath", "AGENT_TO_ANYWHERE"
+                        ),
+                        "protocols": data.get("protocols", ["MCP"]),
+                        "mtls_endpoint": card.get("mtlsEndpoint", ""),
+                        "service_extensions_sa": card.get("serviceExtensionsServiceAccount", ""),
+                        "etag": data.get("etag", ""),
+                    }
+                    return _CACHED_CONTROL_PLANE_CARD
+        except Exception:
+            pass
+
+    return {
+        "control_plane_verified": False,
+        "resource_name": gateway_resource,
+        "governed_access_path": "AGENT_TO_ANYWHERE",
+        "protocols": ["MCP"],
+    }
 
 
 class EgressForwardRequest(BaseModel):
@@ -107,16 +163,18 @@ def _record_audit_log(
 ) -> Dict[str, Any]:
     gateway_resource = _get_gateway_resource()
     authorized_ids = _get_authorized_spiffe_ids()
+    cp_card = _get_network_services_gateway_card()
     entry = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "logName": f"{gateway_resource}/logs/agentgateway.googleapis.com%2Fegress_policy",
         "severity": "INFO" if decision == "ALLOW" else "ERROR",
         "resource": {
-            "type": "aiplatform.googleapis.com/AgentGateway",
+            "type": "networkservices.googleapis.com/AgentGateway",
             "labels": {
                 "gateway_name": "agw-travel-secure",
-                "mode": "AGENT_TO_ANYWHERE_EGRESS",
-                "location": "us-central1",
+                "mode": cp_card.get("governed_access_path", "AGENT_TO_ANYWHERE"),
+                "location": os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1"),
+                "mtls_psc_endpoint": cp_card.get("mtls_endpoint", "local-simulator"),
             },
         },
         "jsonPayload": {
@@ -126,6 +184,7 @@ def _record_audit_log(
             "sts_token_exchange": "VERIFIED" if spiffe_id in authorized_ids else "REJECTED",
             "destination_uri": target_url,
             "http_status": http_status,
+            "control_plane_resource": cp_card.get("resource_name", gateway_resource),
         },
     }
     _AUDIT_LOG_BUFFER.append(entry)
@@ -139,6 +198,7 @@ def health_check() -> Dict[str, Any]:
         "status": "healthy",
         "gateway_resource": _get_gateway_resource(),
         "mode": "AGENT_TO_ANYWHERE_EGRESS",
+        "network_services_control_plane": _get_network_services_gateway_card(),
         "authorized_spiffe_identities": sorted(_get_authorized_spiffe_ids()),
         "allowed_egress_hosts": sorted(_get_allowed_egress_hosts()),
     }
@@ -147,7 +207,11 @@ def health_check() -> Dict[str, Any]:
 @app.get("/egress/logs")
 def get_audit_logs() -> Dict[str, Any]:
     """Return captured Agent Gateway security audit logs (for demo & Datadog handoff)."""
-    return {"gateway": _get_gateway_resource(), "events": list(_AUDIT_LOG_BUFFER)}
+    return {
+        "gateway": _get_gateway_resource(),
+        "network_services_control_plane": _get_network_services_gateway_card(),
+        "events": list(_AUDIT_LOG_BUFFER),
+    }
 
 
 @app.post("/egress/forward")

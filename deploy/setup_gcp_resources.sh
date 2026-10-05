@@ -73,7 +73,7 @@ for sa in travel-router-sa travel-planner-sa corporate-policy-sa corporate-mcp-s
     echo "    Service account ${sa} already exists."
   fi
 
-  for role in roles/run.invoker roles/datastore.user roles/logging.logWriter roles/cloudtrace.agent roles/aiplatform.user; do
+  for role in roles/run.invoker roles/datastore.user roles/logging.logWriter roles/cloudtrace.agent roles/aiplatform.user roles/networkservices.viewer; do
     for attempt in 1 2 3; do
       if gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
         --member="serviceAccount:${sa}@${PROJECT_ID}.iam.gserviceaccount.com" \
