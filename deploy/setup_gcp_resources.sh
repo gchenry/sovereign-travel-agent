@@ -307,6 +307,18 @@ else
 fi
 
 PROJECT_NUMBER="$(gcloud projects describe "${PROJECT_ID}" --format='value(projectNumber)')"
+
+# Grant Vertex AI ReasoningEngine service agents permission to pull BYOC images from Artifact Registry
+for sa_agent in \
+  "service-${PROJECT_NUMBER}@gcp-sa-aiplatform-re.iam.gserviceaccount.com" \
+  "service-${PROJECT_NUMBER}@gcp-sa-aiplatform.iam.gserviceaccount.com"; do
+  gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
+    --member="serviceAccount:${sa_agent}" \
+    --role="roles/artifactregistry.reader" \
+    --condition=None \
+    --quiet >/dev/null 2>&1 || true
+done
+
 if ! gcloud beta service-extensions authz-extensions describe travel-agw-authz-ext --location="${REGION}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
   gcloud beta service-extensions authz-extensions import travel-agw-authz-ext \
     --project="${PROJECT_ID}" \
@@ -314,11 +326,10 @@ if ! gcloud beta service-extensions authz-extensions describe travel-agw-authz-e
     --quiet << 'EOF'
 name: travel-agw-authz-ext
 service: iap.googleapis.com
-failOpen: true
+failOpen: false
 timeout: 1s
 metadata:
-  iapPolicyVersion: "V2"
-  iamEnforcementMode: "DRY_RUN"
+  iapPolicyVersion: "V1"
 EOF
 fi
 

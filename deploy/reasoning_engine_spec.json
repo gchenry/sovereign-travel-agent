@@ -1,28 +1,64 @@
 {
   "displayName": "sovereign-travel-router-agent",
-  "description": "Sovereign Travel & Expense Router Agent governed by Agent Gateway (Egress Mode)",
+  "description": "Sovereign Travel & Expense Router Agent governed by Agent Gateway (agw-travel-secure Egress Mode)",
   "spec": {
+    "identityType": "AGENT_IDENTITY",
+    "agentFramework": "custom",
+    "containerSpec": {
+      "imageUri": "us-central1-docker.pkg.dev/YOUR_PROJECT_ID/sovereign-travel-repo/sovereign-travel-agent:latest"
+    },
     "deploymentSpec": {
       "agentGatewayConfig": {
-        "agentGateway": "projects/YOUR_PROJECT_ID/locations/us-central1/agentGateways/agw-travel-secure"
+        "agentToAnywhereConfig": {
+          "agentGateway": "projects/YOUR_PROJECT_ID/locations/us-central1/agentGateways/agw-travel-secure"
+        }
       },
-      "containerSpec": {
-        "imageUri": "us-central1-docker.pkg.dev/YOUR_PROJECT_ID/sovereign-travel-repo/sovereign-travel-agent:latest",
-        "env": [
-          {
-            "name": "AGENT_ROLE",
-            "value": "travel-router"
-          },
-          {
-            "name": "MEMORYBANK_ID",
-            "value": "projects/YOUR_PROJECT_ID/locations/us-central1/memoryBanks/mb-exec-travel-profiles"
-          },
-          {
-            "name": "SESSION_STORE_URI",
-            "value": "firestore://projects/YOUR_PROJECT_ID/databases/agent-session-store/collections/sessions"
-          }
-        ]
-      }
+      "env": [
+        {
+          "name": "AGENT_ROLE",
+          "value": "travel-router"
+        },
+        {
+          "name": "RUNNING_IN_REASONING_ENGINE",
+          "value": "true"
+        },
+        {
+          "name": "GCP_PROJECT_ID",
+          "value": "YOUR_PROJECT_ID"
+        },
+        {
+          "name": "IMPERSONATE_SA_EMAIL",
+          "value": "travel-router-sa@YOUR_PROJECT_ID.iam.gserviceaccount.com"
+        },
+        {
+          "name": "MEMORYBANK_ID",
+          "value": "projects/YOUR_PROJECT_ID/locations/us-central1/memoryBanks/mb-exec-travel-profiles"
+        },
+        {
+          "name": "SESSION_STORE_URI",
+          "value": "firestore://projects/YOUR_PROJECT_ID/databases/agent-session-store/collections/sessions"
+        },
+        {
+          "name": "AGENT_GATEWAY_URL",
+          "value": "native"
+        },
+        {
+          "name": "AGENT_GATEWAY_RESOURCE",
+          "value": "projects/YOUR_PROJECT_ID/locations/us-central1/agentGateways/agw-travel-secure"
+        },
+        {
+          "name": "TRAVEL_PLANNER_URL",
+          "value": "in-process"
+        },
+        {
+          "name": "CORPORATE_POLICY_AGENT_URL",
+          "value": "in-process"
+        },
+        {
+          "name": "GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY",
+          "value": "true"
+        }
+      ]
     }
   }
 }

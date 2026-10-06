@@ -57,12 +57,46 @@ def _load_corp_db() -> Dict[str, Dict[str, Any]]:
 
 
 class MCPToolCallRequest(BaseModel):
-    """Standard JSON-RPC 2.0 MCP `tools/call` payload."""
+    """Standard JSON-RPC 2.0 MCP request payload."""
 
     jsonrpc: str = "2.0"
-    id: str = "mcp-req-1"
+    id: str | int | None = "mcp-req-1"
     method: str = "tools/call"
-    params: Dict[str, Any]
+    params: Dict[str, Any] = {}
+
+
+_MCP_TOOLS_SPEC: List[Dict[str, Any]] = [
+    {
+        "name": "verify_travel_compliance",
+        "description": "Queries internal Corporate DB to validate destination embargoes, cabin, and fare against Q4 budget.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "user_id": {"type": "string"},
+                "department": {"type": "string"},
+                "cabin_class": {"type": "string"},
+                "estimated_fare_usd": {"type": "number"},
+                "destination": {"type": "string"},
+            },
+            "required": ["user_id", "department", "cabin_class", "estimated_fare_usd"],
+        },
+    },
+    {
+        "name": "override_department_budget",
+        "description": "Privileged administrative tool to override corporate department travel budget caps.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "user_id": {"type": "string"},
+                "department": {"type": "string"},
+                "cabin_class": {"type": "string"},
+                "estimated_fare_usd": {"type": "number"},
+                "destination": {"type": "string"},
+            },
+            "required": ["user_id", "department"],
+        },
+    },
+]
 
 
 @app.get("/health")
@@ -73,39 +107,43 @@ def health_check() -> Dict[str, str]:
 @app.get("/mcp/tools")
 def list_mcp_tools() -> Dict[str, Any]:
     """Return available MCP tools exposed by the Corporate Policy Server."""
-    return {
-        "tools": [
-            {
-                "name": "verify_travel_compliance",
-                "description": "Queries internal Corporate DB to validate destination embargoes, cabin, and fare against Q4 budget.",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "user_id": {"type": "string"},
-                        "department": {"type": "string"},
-                        "cabin_class": {"type": "string"},
-                        "estimated_fare_usd": {"type": "number"},
-                        "destination": {"type": "string"},
-                    },
-                    "required": ["user_id", "department", "cabin_class", "estimated_fare_usd"],
-                },
-            }
-        ]
-    }
+    return {"tools": _MCP_TOOLS_SPEC}
 
 
+@app.post("/mcp")
 @app.post("/mcp/call-tool")
 def call_mcp_tool(
     request: MCPToolCallRequest,
     x_agent_gateway_verified: str | None = Header(default=None),
     x_verified_spiffe_id: str | None = Header(default=None),
 ) -> Dict[str, Any]:
-    """Execute an MCP tool call after Agent Gateway has verified the SPIFFE token."""
+    """Execute an MCP JSON-RPC request after Agent Gateway has verified the caller."""
     if x_agent_gateway_verified != "true":
         raise HTTPException(
             status_code=403,
             detail="Direct access denied. Requests must traverse Agent Gateway over Private Service Connect.",
         )
+
+    if request.method == "initialize":
+        return {
+            "jsonrpc": "2.0",
+            "id": request.id,
+            "result": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {"tools": {}},
+                "serverInfo": {"name": "corporate-mcp-server", "version": "0.2.0"},
+            },
+        }
+
+    if request.method == "notifications/initialized":
+        return {"jsonrpc": "2.0", "id": request.id, "result": {}}
+
+    if request.method == "tools/list":
+        return {
+            "jsonrpc": "2.0",
+            "id": request.id,
+            "result": {"tools": _MCP_TOOLS_SPEC},
+        }
 
     tool_name = request.params.get("name")
     args = request.params.get("arguments", {})
@@ -183,4 +221,5 @@ def call_mcp_tool(
             },
         }
 
-    raise HTTPException(status_code=404, detail=f"Unknown MCP tool: {tool_name}")
+    raise HTTPException(status_code=403, detail=f"Unauthorized or unknown MCP tool: {tool_name}")
+

@@ -19,12 +19,17 @@ def call_corporate_mcp_tool(
     """Invoke a tool on the internal Corporate MCP Server via Agent Gateway + PSC."""
     cfg = get_config()
     target_url = f"{cfg.mcp_server_url.rstrip('/')}/mcp/call-tool"
+    effective_tool_name = (
+        "override_department_budget"
+        if (override_spiffe_id and cfg.agent_gateway_url.lower() == "native")
+        else tool_name
+    )
     json_body = {
         "jsonrpc": "2.0",
         "id": "mcp-req-1",
         "method": "tools/call",
         "params": {
-            "name": tool_name,
+            "name": effective_tool_name,
             "arguments": arguments,
         },
     }
@@ -41,7 +46,7 @@ def call_corporate_mcp_tool(
                 "status": "BLOCKED_BY_AGENT_GATEWAY",
                 "http_status": 403,
                 "gateway": cfg.agent_gateway_resource,
-                "details": body or {"reason": "SPIFFE or Egress Policy Violation"},
+                "details": body or {"reason": "SPIFFE / IAP Authorization Policy Violation at Agent Gateway"},
             }
         return body
     except httpx.HTTPError as exc:
@@ -49,3 +54,4 @@ def call_corporate_mcp_tool(
             "status": "ERROR",
             "error": str(exc),
         }
+

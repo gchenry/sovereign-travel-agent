@@ -31,7 +31,12 @@ echo "==> [Step 1] Building & Pushing Container Images to Artifact Registry (${A
 echo "    (Note: services/mock_gateway is strictly for local Docker Compose and is NOT deployed to Cloud Run)"
 gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
 
-docker build -t sovereign-travel-agent:local -t "${AGENT_IMAGE}" -f Dockerfile .
+ROOT_CA="$(gcloud alpha network-services agent-gateways describe agw-travel-secure \
+  --location="${REGION}" \
+  --project="${PROJECT_ID}" \
+  --format='value(agentGatewayCard.rootCertificates)' 2>/dev/null || true)"
+
+docker build --build-arg AGENT_GATEWAY_ROOT_CERTIFICATES="${ROOT_CA}" -t sovereign-travel-agent:local -t "${AGENT_IMAGE}" -f Dockerfile .
 docker build -t "${MCP_IMAGE}" -f services/corporate_mcp/Dockerfile .
 docker build -t "${AIRLINE_IMAGE}" -f services/mock_airline/Dockerfile .
 
@@ -60,14 +65,15 @@ gcloud run deploy mock-airline-api \
 
 AIRLINE_URL="$(gcloud run services describe mock-airline-api --region="${REGION}" --project="${PROJECT_ID}" --format='value(status.url)')"
 
-echo "==> [Step 3] Registering Governed MCP Server & Endpoints in Google Cloud Agent Registry"
+echo "==> [Step 3] Registering Governed MCP Server (with tool-spec) & Endpoints in Google Cloud Agent Registry"
 if ! gcloud alpha agent-registry services describe corporate-mcp-service --location="${REGION}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
   gcloud alpha agent-registry services create corporate-mcp-service \
     --project="${PROJECT_ID}" \
     --location="${REGION}" \
     --display-name="Corporate Travel Policy MCP Server" \
-    --mcp-server-spec-type="no-spec" \
-    --interfaces="url=${MCP_URL},protocolBinding=JSONRPC" \
+    --mcp-server-spec-type="tool-spec" \
+    --mcp-server-spec-content="deploy/mcp_toolspec.json" \
+    --interfaces="url=${MCP_URL}/mcp/call-tool,protocolBinding=JSONRPC" \
     --quiet
 fi
 
@@ -115,7 +121,7 @@ gcloud beta run deploy travel-router \
   --identity-type="agent-identity" \
   --no-allow-unauthenticated \
   --service-account="travel-router-sa@${PROJECT_ID}.iam.gserviceaccount.com" \
-  --set-env-vars="AGENT_ROLE=travel-router,GOOGLE_CLOUD_PROJECT=${PROJECT_ID},MEMORYBANK_ID=${MEMORYBANK_ID},SESSION_STORE_URI=${SESSION_STORE_URI},AGENT_GATEWAY_URL=native,AGENT_GATEWAY_RESOURCE=${GATEWAY_RESOURCE},WORKLOAD_SPIFFE_ID=${ROUTER_SPIFFE},TRAVEL_PLANNER_URL=${PLANNER_URL},CORPORATE_POLICY_AGENT_URL=${POLICY_URL},MCP_SERVER_URL=${MCP_URL},AIRLINE_API_URL=${AIRLINE_URL}" \
+  --set-env-vars="AGENT_ROLE=travel-router,GOOGLE_CLOUD_PROJECT=${PROJECT_ID},MEMORYBANK_ID=${MEMORYBANK_ID},SESSION_STORE_URI=${SESSION_STORE_URI},AGENT_GATEWAY_URL=native,AGENT_GATEWAY_RESOURCE=${GATEWAY_RESOURCE},WORKLOAD_SPIFFE_ID=${ROUTER_SPIFFE},TRAVEL_PLANNER_URL=${PLANNER_URL},CORPORATE_POLICY_AGENT_URL=${POLICY_URL},MCP_SERVER_URL=${MCP_URL},AIRLINE_API_URL=${AIRLINE_URL},REASONING_ENGINE_ID=${REASONING_ENGINE_ID:-}" \
   --project="${PROJECT_ID}" \
   --quiet
 
@@ -124,7 +130,7 @@ ROUTER_URL="$(gcloud run services describe travel-router --region="${REGION}" --
 PROJECT_NUMBER="$(gcloud projects describe "${PROJECT_ID}" --format='value(projectNumber)')"
 ORG_ID="$(gcloud projects get-ancestors "${PROJECT_ID}" --format='value(id)' | tail -n 1)"
 
-echo "==> [Step 5] Binding Cloud Run Agent Identity Principals & IAP Egressor Policy"
+echo "==> [Step 5] Binding Agent Identity Principals (ReasoningEngine & Cloud Run) & IAP Egressor Policy"
 for svc in travel-router travel-planner corporate-policy-agent; do
   AGENT_PRINCIPAL="principal://agents.global.org-${ORG_ID}.system.id.goog/resources/run/projects/${PROJECT_NUMBER}/locations/${REGION}/services/${svc}"
   for role in roles/run.invoker roles/datastore.user roles/logging.logWriter roles/logging.viewer roles/viewer roles/aiplatform.user; do
@@ -136,31 +142,28 @@ for svc in travel-router travel-planner corporate-policy-agent; do
   done
 done
 
-for reg_svc in corporate-mcp-service mock-airline-service; do
-  REG_URI="$(gcloud alpha agent-registry services describe "${reg_svc}" --project="${PROJECT_ID}" --location="${REGION}" --format='value(registryResource)' 2>/dev/null || true)"
-  if [[ -n "${REG_URI}" ]]; then
-    ENDPOINT_ID="$(basename "${REG_URI}")"
-    for svc in travel-router travel-planner corporate-policy-agent; do
-      AGENT_PRINCIPAL="principal://agents.global.org-${ORG_ID}.system.id.goog/resources/run/projects/${PROJECT_NUMBER}/locations/${REGION}/services/${svc}"
-      gcloud alpha iap web add-iam-policy-binding \
-        --project="${PROJECT_ID}" \
-        --resource-type="agent-registry" \
-        --region="${REGION}" \
-        --endpoint="${ENDPOINT_ID}" \
-        --member="${AGENT_PRINCIPAL}" \
-        --role="roles/iap.egressor" \
-        --condition=None \
-        --quiet >/dev/null 2>&1 || true
-    done
-  fi
-done
+if [[ -n "${REASONING_ENGINE_ID:-}" ]]; then
+  RE_PRINCIPAL="principal://agents.global.org-${ORG_ID}.system.id.goog/resources/aiplatform/projects/${PROJECT_NUMBER}/locations/${REGION}/reasoningEngines/${REASONING_ENGINE_ID}"
+  for role in roles/run.invoker roles/datastore.user roles/logging.logWriter roles/logging.viewer roles/viewer roles/aiplatform.user roles/iam.serviceAccountTokenCreator; do
+    gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
+      --member="${RE_PRINCIPAL}" \
+      --role="${role}" \
+      --condition=None \
+      --quiet >/dev/null 2>&1 || true
+  done
+  gcloud iam service-accounts add-iam-policy-binding "travel-router-sa@${PROJECT_ID}.iam.gserviceaccount.com" \
+    --member="${RE_PRINCIPAL}" \
+    --role="roles/iam.serviceAccountTokenCreator" \
+    --project="${PROJECT_ID}" \
+    --quiet >/dev/null 2>&1 || true
+fi
 
 echo "==> [Step 6] Generating Resolved ReasoningEngine Spec with agentGatewayConfig"
 RESOLVED_SPEC="deploy/reasoning_engine_spec.resolved.json"
 sed "s/YOUR_PROJECT_ID/${PROJECT_ID}/g" deploy/reasoning_engine_spec.json > "${RESOLVED_SPEC}"
 
 echo "========================================================================"
-echo "✔ Cloud Run Fleet Deployed & Governed by Native Google Cloud Agent Gateway!"
+echo "✔ Sovereign Fleet Deployed & Governed by Native Google Cloud Agent Gateway!"
 echo "  • Travel Router URL:          ${ROUTER_URL}"
 echo "  • Travel Planner URL:         ${PLANNER_URL}"
 echo "  • Corporate Policy Agent URL: ${POLICY_URL}"

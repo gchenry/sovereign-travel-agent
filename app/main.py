@@ -5,7 +5,9 @@ containers and Google Cloud Run / Vertex AI Reasoning Engine deployments.
 """
 
 from typing import Any, Dict
-from fastapi import FastAPI
+import os
+import httpx
+from fastapi import Body, FastAPI
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
@@ -13,7 +15,11 @@ from app.config import get_config
 from app.agent import TravelRouterAgent
 from app.agents.travel_planner import TravelPlannerAgent
 from app.agents.corporate_policy import CorporatePolicyAgent
-from app.gateway_governor import fetch_gateway_audit_logs, resolve_native_agent_gateway_state
+from app.gateway_governor import (
+    fetch_gateway_audit_logs,
+    get_gcp_access_token,
+    resolve_native_agent_gateway_state,
+)
 from app.ui import CHAT_UI_HTML
 
 app = FastAPI(
@@ -88,6 +94,8 @@ def health_check() -> Dict[str, Any]:
         "gateway_resource": cfg.agent_gateway_resource,
         "workload_spiffe_id": cfg.workload_spiffe_id,
     }
+    if cfg.reasoning_engine_id:
+        result["reasoning_engine_id"] = cfg.reasoning_engine_id
     if cfg.agent_gateway_url.lower() == "native":
         result["network_services_control_plane"] = resolve_native_agent_gateway_state()
     return result
@@ -96,12 +104,63 @@ def health_check() -> Dict[str, Any]:
 @app.post("/invoke")
 def invoke_agent(request: InvocationRequest) -> Dict[str, Any]:
     """Primary invocation endpoint for the Travel Router Agent."""
+    cfg = get_config()
+    if (
+        cfg.reasoning_engine_id
+        and cfg.agent_gateway_url.lower() == "native"
+        and os.getenv("RUNNING_IN_REASONING_ENGINE", "").lower() != "true"
+    ):
+        token = get_gcp_access_token()
+        if token:
+            re_id = cfg.reasoning_engine_id.split("/")[-1]
+            re_api_url = (
+                f"https://{cfg.location}-aiplatform.googleapis.com/reasoningEngines/v1/"
+                f"projects/{cfg.project_id}/locations/{cfg.location}/reasoningEngines/{re_id}/api/invoke"
+            )
+            try:
+                with httpx.Client(timeout=45.0) as client:
+                    resp = client.post(
+                        re_api_url,
+                        headers={"Authorization": f"Bearer {token}"},
+                        json=request.model_dump(),
+                    )
+                    if resp.status_code == 200:
+                        return resp.json()
+            except Exception:
+                pass
     return router_agent.execute(
         prompt=request.prompt,
         user_id=request.user_id,
         session_id=request.session_id,
         override_spiffe_id=request.override_spiffe_id,
     )
+
+
+@app.post("/api/reasoning_engine")
+def invoke_reasoning_engine_query(payload: Any = Body(default={})) -> Dict[str, Any]:
+    """Vertex AI ReasoningEngine `:query` entrypoint (`/api/reasoning_engine`)."""
+    import json
+
+    if isinstance(payload, (str, bytes)):
+        try:
+            payload = json.loads(payload)
+        except Exception:
+            payload = {"prompt": str(payload)}
+    inner = payload.get("input", payload) if isinstance(payload, dict) else {}
+    if isinstance(inner, str):
+        try:
+            inner = json.loads(inner)
+        except Exception:
+            inner = {"prompt": inner}
+    if not isinstance(inner, dict):
+        inner = {"prompt": str(inner)}
+    return router_agent.execute(
+        prompt=inner.get("prompt", "Book a business class flight to Tokyo next Tuesday."),
+        user_id=inner.get("user_id", "exec-user-001"),
+        session_id=inner.get("session_id", "sess-re-001"),
+        override_spiffe_id=inner.get("override_spiffe_id"),
+    )
+
 
 
 @app.post("/a2a/plan")

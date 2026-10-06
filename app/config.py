@@ -38,11 +38,23 @@ class AgentConfig:
     corporate_policy_agent_url: str
     mcp_server_url: str
     airline_api_url: str
+    reasoning_engine_id: str = ""
+
+
+_ID_TOKEN_CACHE: Dict[str, tuple[float, str]] = {}
 
 
 def get_config() -> AgentConfig:
     """Return current runtime configuration from environment variables."""
-    project_id = os.getenv("GOOGLE_CLOUD_PROJECT", "YOUR_PROJECT_ID")
+    project_id = os.getenv("GCP_PROJECT_ID") or os.getenv("GOOGLE_CLOUD_PROJECT", "YOUR_PROJECT_ID")
+    if project_id.isdigit() or project_id == "YOUR_PROJECT_ID":
+        for env_key in ("AGENT_GATEWAY_RESOURCE", "MEMORYBANK_ID", "SESSION_STORE_URI"):
+            val = os.getenv(env_key, "")
+            if "projects/" in val:
+                candidate = val.split("projects/", 1)[1].split("/", 1)[0]
+                if candidate and not candidate.isdigit():
+                    project_id = candidate
+                    break
     location = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
     return AgentConfig(
         agent_role=os.getenv("AGENT_ROLE", "travel-router"),
@@ -69,24 +81,87 @@ def get_config() -> AgentConfig:
         corporate_policy_agent_url=os.getenv("CORPORATE_POLICY_AGENT_URL", "http://localhost:8087"),
         mcp_server_url=os.getenv("MCP_SERVER_URL", "http://corporate-mcp-server:8090"),
         airline_api_url=os.getenv("AIRLINE_API_URL", "http://mock-airline-api:8091"),
+        reasoning_engine_id=os.getenv("REASONING_ENGINE_ID", ""),
     )
 
 
+def _mint_sa_id_token_via_iam(audience: str, project_id: str) -> str | None:
+    """Mint a Google OIDC ID token via IAM Credentials API when running in ReasoningEngine with AGENT_IDENTITY."""
+    sa_email = os.getenv(
+        "IMPERSONATE_SA_EMAIL",
+        f"travel-router-sa@{project_id}.iam.gserviceaccount.com",
+    )
+    metadata_token_url = (
+        "http://metadata.google.internal/computeMetadata/v1/instance/"
+        "service-accounts/default/token"
+    )
+    access_token: str | None = None
+    try:
+        with httpx.Client(timeout=2.0) as client:
+            resp = client.get(metadata_token_url, headers={"Metadata-Flavor": "Google"})
+            if resp.status_code == 200:
+                access_token = resp.json().get("access_token")
+    except Exception:
+        pass
+
+    if not access_token:
+        return None
+
+    iam_url = (
+        f"https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/{sa_email}:generateIdToken"
+    )
+    try:
+        with httpx.Client(timeout=4.0) as client:
+            resp = client.post(
+                iam_url,
+                headers={"Authorization": f"Bearer {access_token}"},
+                json={"audience": audience, "includeEmail": True},
+            )
+            if resp.status_code == 200:
+                return resp.json().get("token")
+    except Exception:
+        pass
+    return None
+
+
 def get_cloud_run_headers(target_url: str, extra_headers: Dict[str, str] | None = None) -> Dict[str, str]:
-    """Attach GCP Metadata Server identity token when calling IAM-protected Cloud Run URLs."""
+    """Attach GCP OIDC identity token when calling IAM-protected Cloud Run URLs."""
+    import time
+
     headers = dict(extra_headers or {})
     parsed = urlparse(target_url)
     if parsed.scheme == "https" and parsed.netloc.endswith(".run.app"):
         audience = f"{parsed.scheme}://{parsed.netloc}"
-        metadata_url = (
-            "http://metadata.google.internal/computeMetadata/v1/instance/"
-            f"service-accounts/default/identity?audience={audience}"
-        )
-        try:
-            with httpx.Client(timeout=2.0) as client:
-                resp = client.get(metadata_url, headers={"Metadata-Flavor": "Google"})
-                if resp.status_code == 200 and resp.text:
-                    headers["Authorization"] = f"Bearer {resp.text.strip()}"
-        except httpx.HTTPError:
-            pass
+        now = time.time()
+        cached = _ID_TOKEN_CACHE.get(audience)
+        if cached and cached[0] > now:
+            headers["Authorization"] = f"Bearer {cached[1]}"
+            return headers
+
+        cfg = get_config()
+        id_token: str | None = None
+
+        if os.getenv("RUNNING_IN_REASONING_ENGINE", "").lower() == "true":
+            id_token = _mint_sa_id_token_via_iam(audience, cfg.project_id)
+
+        if not id_token:
+            metadata_url = (
+                "http://metadata.google.internal/computeMetadata/v1/instance/"
+                f"service-accounts/default/identity?audience={audience}"
+            )
+            try:
+                with httpx.Client(timeout=2.0) as client:
+                    resp = client.get(metadata_url, headers={"Metadata-Flavor": "Google"})
+                    if resp.status_code == 200 and resp.text:
+                        id_token = resp.text.strip()
+            except httpx.HTTPError:
+                pass
+
+        if not id_token and cfg.project_id != "YOUR_PROJECT_ID":
+            id_token = _mint_sa_id_token_via_iam(audience, cfg.project_id)
+
+        if id_token:
+            _ID_TOKEN_CACHE[audience] = (now + 240.0, id_token)
+            headers["Authorization"] = f"Bearer {id_token}"
     return headers
+

@@ -1,0 +1,53 @@
+{
+  "tools": [
+    {
+      "name": "verify_travel_compliance",
+      "description": "Queries internal Corporate DB to validate destination embargoes, cabin, and fare against Q4 budget.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string"
+          },
+          "department": {
+            "type": "string"
+          },
+          "cabin_class": {
+            "type": "string"
+          },
+          "estimated_fare_usd": {
+            "type": "number"
+          },
+          "destination": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "department",
+          "cabin_class",
+          "estimated_fare_usd"
+        ]
+      }
+    },
+    {
+      "name": "override_department_budget",
+      "description": "Destructive administrative tool to override corporate travel budget caps (restricted by IAP policy).",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "department": {
+            "type": "string"
+          },
+          "new_budget_usd": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "department",
+          "new_budget_usd"
+        ]
+      }
+    }
+  ]
+}
