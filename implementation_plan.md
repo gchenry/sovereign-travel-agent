@@ -21,9 +21,10 @@ flowchart TB
         SessionDB[("🗄️ Cloud Firestore<br/>(SESSION_STORE_URI)<br/>agent-session-store")]
     end
 
-    subgraph GovernancePerimeter["Google Cloud Agent Gateway Perimeter (agw-travel-secure)"]
-        AGWControl["🎛️ Network Services AgentGateway (Control Plane)<br/>networkservices.googleapis.com/v1/.../agentGateways/agw-travel-secure<br/>• Mode: AGENT_TO_ANYWHERE | Protocol: MCP<br/>• Managed mTLS PSC Card (unitkind1-swp-mtls-psc-sa)"]
-        Gateway["🛡️ Agent Gateway Data Plane (agw-travel-secure)<br/>• SPIFFE JWT-SVID Validation via Google STS<br/>• Default DENY Egress Policy<br/>• Injects X-Agent-Gateway-Verified Header"]
+    subgraph GovernancePerimeter["Google Cloud Native Agent Gateway Perimeter (agw-travel-secure)"]
+        AGWControl["🎛️ Network Services AgentGateway<br/>networkservices.googleapis.com/v1/.../agentGateways/agw-travel-secure<br/>• Mode: AGENT_TO_ANYWHERE | Protocol: MCP<br/>• Managed mTLS PSC Card (unitkind1-swp-mtls-psc-sa)<br/>• Egress Attachment: corp-agw-net-attachment"]
+        Registry["📒 Google Cloud Agent Registry<br/>agentregistry.googleapis.com/v1alpha/...<br/>• corporate-mcp-service (MCP)<br/>• mock-airline-service (REST)"]
+        Authz["🛡️ Network Security AuthzPolicy & Governor<br/>• travel-agw-authz-policy + travel-agw-authz-ext<br/>• SPIFFE Identity & Registered Endpoint Enforcement<br/>• Direct Cloud Logging (agentgateway.googleapis.com/egress_policy)"]
         STS["🔐 Google Security Token Service (STS)<br/>Trust Domain: PROJECT_ID.svc.id.goog"]
     end
 
@@ -38,7 +39,7 @@ flowchart TB
         Attacker["🏴‍☠️ Prompt Injection Exfil Target<br/>(exfil-vault.attacker-analytics.io)<br/>❌ 403 BLOCKED AT GATEWAY"]
     end
 
-    Observability["📊 Cloud Logging & Datadog Telemetry<br/>(AGENT-GATEWAY-AUDIT + mTLS PSC Card)"]
+    Observability["📊 Cloud Logging & Datadog Telemetry<br/>log_id(agentgateway.googleapis.com/egress_policy)"]
 
     User -->|"POST /invoke"| Router
     Router <-->|"Read/Write Turns"| SessionDB
@@ -46,18 +47,19 @@ flowchart TB
     Router -->|"A2A: /a2a/policy-check"| Policy
 
     Planner -->|"Fetch Traveler Profile"| MemBank
-    Planner -->|"Outbound Flight Lookup"| Gateway
-    Policy -->|"Outbound MCP Tool Call"| Gateway
-    Router -.->|"Simulated Prompt Injection Exfil"| Gateway
+    Planner -->|"Outbound Flight Lookup"| Authz
+    Policy -->|"Outbound MCP Tool Call"| Authz
+    Router -.->|"Simulated Prompt Injection Exfil"| Authz
 
-    AGWControl -.->|"Live agentGatewayCard Sync"| Gateway
-    Gateway <-->|"Verify SPIFFE JWT-SVID"| STS
-    Gateway -->|"✅ ALLOW (HTTPS)"| AirlineAPI
-    Gateway -->|"✅ ALLOW (PSC + Verified Header)"| PSC
+    AGWControl -.->|"Live agentGatewayCard Sync"| Authz
+    Registry -.->|"Endpoint Discovery"| AGWControl
+    Authz <-->|"Verify SPIFFE Identity"| STS
+    Authz -->|"✅ ALLOW (HTTPS)"| AirlineAPI
+    Authz -->|"✅ ALLOW (PSC + Verified Header)"| PSC
     PSC --> MCP
     MCP --> CorpDB
-    Gateway -.->|"🛑 403 DENY (Egress Violation)"| Attacker
-    Gateway -->|"Emit Audit Events"| Observability
+    Authz -.->|"🛑 403 DENY (Egress Violation)"| Attacker
+    Authz -->|"Emit Structured Audit Logs"| Observability
 ```
 
 ---

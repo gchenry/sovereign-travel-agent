@@ -37,6 +37,9 @@ echo "==> [1/7] Enabling required Google Cloud APIs..."
 gcloud services enable \
   aiplatform.googleapis.com \
   networkservices.googleapis.com \
+  networksecurity.googleapis.com \
+  agentregistry.googleapis.com \
+  iap.googleapis.com \
   run.googleapis.com \
   artifactregistry.googleapis.com \
   cloudbuild.googleapis.com \
@@ -73,7 +76,7 @@ for sa in travel-router-sa travel-planner-sa corporate-policy-sa corporate-mcp-s
     echo "    Service account ${sa} already exists."
   fi
 
-  for role in roles/run.invoker roles/datastore.user roles/logging.logWriter roles/cloudtrace.agent roles/aiplatform.user roles/networkservices.viewer; do
+  for role in roles/run.invoker roles/datastore.user roles/logging.logWriter roles/logging.viewer roles/cloudtrace.agent roles/aiplatform.user roles/networkservices.viewer roles/viewer; do
     for attempt in 1 2 3; do
       if gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
         --member="serviceAccount:${sa}@${PROJECT_ID}.iam.gserviceaccount.com" \
@@ -271,12 +274,20 @@ if [[ -n "${RE_ID}" ]]; then
     }' >/dev/null || true
 fi
 
+if ! gcloud compute network-attachments describe corp-agw-net-attachment --region="${REGION}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
+  gcloud compute network-attachments create corp-agw-net-attachment \
+    --region="${REGION}" \
+    --connection-preference=ACCEPT_AUTOMATIC \
+    --subnets="${SUBNET_NAME}" \
+    --project="${PROJECT_ID}"
+fi
+
 if ! gcloud network-services agent-gateways describe "${GATEWAY_NAME}" --location="${REGION}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
   echo "    Provisioning Google Cloud Network Services AgentGateway (${GATEWAY_NAME})..."
-  gcloud network-services agent-gateways import "${GATEWAY_NAME}" \
+  gcloud beta network-services agent-gateways import "${GATEWAY_NAME}" \
     --location="${REGION}" \
     --project="${PROJECT_ID}" \
-    --quiet << 'EOF'
+    --quiet << EOF
 description: Zero-Trust Egress Gateway for the Travel & Expense Sovereign Fleet
 labels:
   pillar: govern
@@ -285,9 +296,48 @@ googleManaged:
   governedAccessPath: AGENT_TO_ANYWHERE
 protocols:
   - MCP
+registries:
+  - //agentregistry.googleapis.com/projects/${PROJECT_ID}/locations/${REGION}
+networkConfig:
+  egress:
+    networkAttachment: projects/${PROJECT_ID}/regions/${REGION}/networkAttachments/corp-agw-net-attachment
 EOF
 else
   echo "    Network Services AgentGateway ${GATEWAY_NAME} already exists."
+fi
+
+PROJECT_NUMBER="$(gcloud projects describe "${PROJECT_ID}" --format='value(projectNumber)')"
+if ! gcloud beta service-extensions authz-extensions describe travel-agw-authz-ext --location="${REGION}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
+  gcloud beta service-extensions authz-extensions import travel-agw-authz-ext \
+    --project="${PROJECT_ID}" \
+    --location="${REGION}" \
+    --quiet << 'EOF'
+name: travel-agw-authz-ext
+service: iap.googleapis.com
+failOpen: true
+timeout: 1s
+metadata:
+  iapPolicyVersion: "V2"
+  iamEnforcementMode: "DRY_RUN"
+EOF
+fi
+
+if ! gcloud network-security authz-policies describe travel-agw-authz-policy --location="${REGION}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
+  gcloud network-security authz-policies import travel-agw-authz-policy \
+    --project="${PROJECT_ID}" \
+    --location="${REGION}" \
+    --quiet << EOF
+name: projects/${PROJECT_ID}/locations/${REGION}/authzPolicies/travel-agw-authz-policy
+target:
+  resources:
+    - projects/${PROJECT_NUMBER}/locations/${REGION}/agentGateways/${GATEWAY_NAME}
+policyProfile: REQUEST_AUTHZ
+action: CUSTOM
+customProvider:
+  authzExtension:
+    resources:
+      - projects/${PROJECT_NUMBER}/locations/${REGION}/authzExtensions/travel-agw-authz-ext
+EOF
 fi
 
 sed "s/YOUR_PROJECT_ID/${PROJECT_ID}/g" deploy/agent_gateway_policy.yaml > deploy/agent_gateway_policy.resolved.yaml

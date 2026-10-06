@@ -34,8 +34,11 @@ flowchart TB
         SessionDB[("🗄️ Cloud Firestore<br/>(SESSION_STORE_URI)")]
     end
 
-    AGWControl["🎛️ GCP Network Services AgentGateway<br/>(agw-travel-secure | AGENT_TO_ANYWHERE / MCP)"]
-    Gateway["🛡️ Agent Gateway Data Plane (agw-travel-secure)<br/>SPIFFE JWT-SVID STS Check + Default DENY Egress"]
+    subgraph GCPGovernance["Google Cloud Native Agent Gateway Perimeter"]
+        AGW["🛡️ Network Services AgentGateway (agw-travel-secure)<br/>AGENT_TO_ANYWHERE / MCP + mTLS PSC Card"]
+        Registry["📒 Google Cloud Agent Registry<br/>(corporate-mcp-service & mock-airline-service)"]
+        Authz["🔒 Network Security AuthzPolicy<br/>(travel-agw-authz-policy + travel-agw-authz-ext)"]
+    end
 
     subgraph CorpVPC["Corporate VPC — Private Service Connect (PSC)"]
         MCP["🏢 Corporate MCP Server + DB<br/>Budget Caps, Cabin Rules & OFAC Embargoes"]
@@ -49,15 +52,16 @@ flowchart TB
     Router -->|"A2A"| Planner
     Router -->|"A2A"| Policy
     Planner --> MemBank
-    Planner --> Gateway
-    Policy --> Gateway
-    Router -.->|"Exfil Attempt"| Gateway
-    AGWControl -.->|"agentGatewayCard (mTLS PSC)"| Gateway
-    Gateway -->|"✅ ALLOW"| AirlineAPI
-    Gateway -->|"✅ ALLOW (PSC)"| MCP
-    Gateway -.->|"🛑 403 DENY"| Attacker
+    Planner --> AGW
+    Policy --> AGW
+    Router -.->|"Exfil Attempt"| AGW
+    Registry -.->|"Registered Endpoints"| AGW
+    Authz -.->|"Request Authz"| AGW
+    AGW -->|"✅ ALLOW"| AirlineAPI
+    AGW -->|"✅ ALLOW (PSC)"| MCP
+    AGW -.->|"🛑 403 DENY"| Attacker
 ```
-*(See [`implementation_plan.md`](./implementation_plan.md) for the full detailed architecture and sequence diagrams.)*
+*(Note: Local Docker Compose uses `services/mock_gateway/proxy.py` as a local emulator for `agy test`, whereas Cloud Run uses `AGENT_GATEWAY_URL=native` bound directly to Google Cloud `AgentGateway`, `AgentRegistry`, and `AuthzPolicy`. See [`implementation_plan.md`](./implementation_plan.md) for the full detailed architecture and sequence diagrams.)*
 
 ---
 

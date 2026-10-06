@@ -92,7 +92,8 @@ def _is_fleet_running(router_url: str, gateway_url: str) -> bool:
 
 def main() -> None:
     router_url = os.getenv("TARGET_ROUTER_URL", "http://127.0.0.1:8085")
-    gateway_url = os.getenv("TARGET_GATEWAY_URL", "http://127.0.0.1:8095")
+    default_gw = router_url if router_url.startswith("https://") else "http://127.0.0.1:8095"
+    gateway_url = os.getenv("TARGET_GATEWAY_URL", default_gw)
 
     with ExitStack() as stack:
         if not router_url.startswith("https://") and not _is_fleet_running(router_url, gateway_url):
@@ -136,7 +137,6 @@ def main() -> None:
         router_headers = _get_auth_headers(router_url)
         gateway_headers = _get_auth_headers(gateway_url)
         print(f"{BOLD}Target Travel Router Endpoint:{RESET} {router_url}")
-        print(f"{BOLD}Target Agent Gateway Endpoint:{RESET} {gateway_url}")
 
         try:
             gw_health = httpx.get(
@@ -150,9 +150,11 @@ def main() -> None:
                 timeout=30.0,
             )
             cp = gw_health.get("network_services_control_plane", {})
-            print(f"{BOLD}Agent Gateway Resource:{RESET}        {gw_health.get('gateway_resource')}")
-            if cp.get("mtls_endpoint"):
-                print(f"{BOLD}GCP Network Services mTLS PSC:{RESET} {cp.get('mtls_endpoint')}")
+            print(f"{BOLD}Agent Gateway Resource:{RESET}        {gw_health.get('gateway_resource') or gw_health.get('agent_gateway_resource')}")
+            if cp.get("mtls_psc_endpoint"):
+                print(f"{BOLD}GCP Network Services mTLS PSC:{RESET} {cp.get('mtls_psc_endpoint')}")
+            if cp.get("authz_policy"):
+                print(f"{BOLD}Network Security AuthzPolicy:{RESET}  {cp.get('authz_policy')}")
         except Exception:
             pass
 

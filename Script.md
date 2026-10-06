@@ -57,15 +57,15 @@ Open these **browser tabs** ahead of time:
 1. **Slide / Diagram**: *The Travel & Expense Sovereign Fleet Architecture Diagram* (or open `README.md` / `implementation_plan.md` Mermaid diagram).
 2. **Google Cloud Console Tab — Network Services -> Agent Gateway**:
    - **Console Path**: *Network Services -> Agent Gateway* (`https://console.cloud.google.com/net-services/agent-gateway/list`)
-   - Highlight `agw-travel-secure` in `us-central1` (`governedAccessPath: AGENT_TO_ANYWHERE`, protocol `MCP`, and its Google-managed `mtlsEndpoint` PSC service attachment).
+   - Highlight `agw-travel-secure` in `us-central1` (`governedAccessPath: AGENT_TO_ANYWHERE`, protocol `MCP`, bound to **Google Cloud Agent Registry** and **Network Security `AuthzPolicy` (`travel-agw-authz-policy`)**, and its Google-managed `mtlsEndpoint` PSC service attachment).
 3. **Google Cloud Console Tab — Cloud Run Services**:
    - **Console Path**: *Navigation Menu -> Cloud Run -> Services* (`https://console.cloud.google.com/run`)
-   - Point out the distinct services running in `us-central1`:
+   - Point out the stateless application services running in `us-central1` (no mock gateway container in Cloud Run):
      - `travel-router` (Orchestrator Agent + Zero-Trust Chat Console)
      - `travel-planner` (Travel Planner Sub-Agent)
      - `corporate-policy-agent` (Corporate Policy Sub-Agent)
      - `corporate-mcp-server` (Internal Corporate MCP Tool Server)
-     - `agw-travel-secure` (Agent Gateway Data-Plane Enforcement Service bound to the Network Services `AgentGateway` control-plane resource)
+     - `mock-airline-api` (Authorized External Airline API)
 
 ### 🎙️ Talk Track
 > "Let's map out the **Travel & Expense Sovereign Fleet** we're building today. Instead of one monolithic agent doing everything, we break the system into three specialized, autonomous agents running as stateless containers:
@@ -217,10 +217,8 @@ gcloud run services list --region=us-central1
 ```bash
 # Execute the 5 live scenarios directly against the deployed Cloud Run fleet
 ROUTER_URL="$(gcloud run services describe travel-router --region=us-central1 --format='value(status.url)')"
-GATEWAY_URL="$(gcloud run services describe agw-travel-secure --region=us-central1 --format='value(status.url)')"
 
 TARGET_ROUTER_URL="${ROUTER_URL}" \
-TARGET_GATEWAY_URL="${GATEWAY_URL}" \
 .venv/bin/python scripts/run_demo_scenarios.py
 ```
 

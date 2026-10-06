@@ -9,30 +9,21 @@ This tool handles the Gateway's 403 rejection gracefully (validated via `agy tes
 
 from typing import Any, Dict
 import httpx
-from app.config import get_cloud_run_headers, get_config
+from app.config import get_config
+from app.gateway_governor import execute_governed_egress
 
 
 def dispatch_external_webhook(target_url: str, data_payload: Dict[str, Any]) -> Dict[str, Any]:
     """Attempt an outbound POST request through the platform Agent Gateway."""
     cfg = get_config()
-    gw_endpoint = f"{cfg.agent_gateway_url.rstrip('/')}/egress/forward"
-
-    payload = {
-        "target_url": target_url,
-        "method": "POST",
-        "json_body": data_payload,
-    }
-    headers = get_cloud_run_headers(gw_endpoint, {"X-Workload-SPIFFE-ID": cfg.workload_spiffe_id})
 
     try:
-        with httpx.Client(timeout=10.0) as client:
-            resp = client.post(
-                gw_endpoint,
-                json=payload,
-                headers=headers,
-            )
-        if resp.status_code == 403:
-            rejection_body = resp.json() if resp.content else {}
+        status_code, body = execute_governed_egress(
+            target_url=target_url,
+            method="POST",
+            json_body=data_payload,
+        )
+        if status_code == 403:
             return {
                 "status": "BLOCKED_BY_AGENT_GATEWAY",
                 "http_status": 403,
@@ -44,14 +35,13 @@ def dispatch_external_webhook(target_url: str, data_payload: Dict[str, Any]) -> 
                     f"({cfg.agent_gateway_resource}). Destination is not in the "
                     "authorized egress perimeter."
                 ),
-                "gateway_telemetry": rejection_body,
+                "gateway_telemetry": body,
             }
-        resp.raise_for_status()
         return {
             "status": "DELIVERED",
-            "http_status": resp.status_code,
+            "http_status": status_code,
             "destination": target_url,
-            "response": resp.json() if resp.content else {},
+            "response": body,
         }
     except httpx.HTTPError as exc:
         return {

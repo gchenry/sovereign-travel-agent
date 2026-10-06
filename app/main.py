@@ -7,13 +7,13 @@ containers and Google Cloud Run / Vertex AI Reasoning Engine deployments.
 from typing import Any, Dict
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
-import httpx
 from pydantic import BaseModel, Field
 
-from app.config import get_cloud_run_headers, get_config
+from app.config import get_config
 from app.agent import TravelRouterAgent
 from app.agents.travel_planner import TravelPlannerAgent
 from app.agents.corporate_policy import CorporatePolicyAgent
+from app.gateway_governor import fetch_gateway_audit_logs, resolve_native_agent_gateway_state
 from app.ui import CHAT_UI_HTML
 
 app = FastAPI(
@@ -68,33 +68,29 @@ def demo_chat_ui() -> str:
 
 
 @app.get("/gateway-logs")
+@app.get("/egress/logs")
 def gateway_logs() -> Dict[str, Any]:
-    """Fetch recent Agent Gateway egress & SPIFFE audit events for the live UI."""
-    cfg = get_config()
-    target = f"{cfg.agent_gateway_url.rstrip('/')}/egress/logs"
-    try:
-        with httpx.Client(timeout=5.0) as client:
-            resp = client.get(target, headers=get_cloud_run_headers(target))
-            if resp.status_code == 200:
-                return resp.json()
-    except httpx.HTTPError:
-        pass
-    return {"events": []}
+    """Fetch recent Agent Gateway egress & SPIFFE audit events for the live UI & CLI."""
+    return fetch_gateway_audit_logs()
 
 
 @app.get("/health")
 def health_check() -> Dict[str, Any]:
     """Standard health endpoint verifying stateless config & decoupled state bindings."""
     cfg = get_config()
-    return {
+    result: Dict[str, Any] = {
         "status": "healthy",
         "agent_role": cfg.agent_role,
         "stateless_container": True,
         "memorybank_id": cfg.memorybank_id,
         "session_store_uri": cfg.session_store_uri,
         "agent_gateway_resource": cfg.agent_gateway_resource,
+        "gateway_resource": cfg.agent_gateway_resource,
         "workload_spiffe_id": cfg.workload_spiffe_id,
     }
+    if cfg.agent_gateway_url.lower() == "native":
+        result["network_services_control_plane"] = resolve_native_agent_gateway_state()
+    return result
 
 
 @app.post("/invoke")
