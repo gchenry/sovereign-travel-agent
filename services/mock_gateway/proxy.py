@@ -161,33 +161,69 @@ def _record_audit_log(
     target_url: str,
     http_status: int,
 ) -> Dict[str, Any]:
+    project_id = os.getenv("GOOGLE_CLOUD_PROJECT", "YOUR_PROJECT_ID")
+    location = os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1")
     gateway_resource = _get_gateway_resource()
     authorized_ids = _get_authorized_spiffe_ids()
     cp_card = _get_network_services_gateway_card()
+    severity = "INFO" if decision == "ALLOW" else "ERROR"
+    json_payload = {
+        "decision": decision,
+        "reason": reason,
+        "caller_spiffe_jwt_svid": spiffe_id or "MISSING",
+        "sts_token_exchange": "VERIFIED" if spiffe_id in authorized_ids else "REJECTED",
+        "destination_uri": target_url,
+        "http_status": http_status,
+        "gateway_resource": cp_card.get("resource_name", gateway_resource),
+        "governed_access_path": cp_card.get("governed_access_path", "AGENT_TO_ANYWHERE"),
+        "mtls_psc_endpoint": cp_card.get("mtls_endpoint", "local-simulator"),
+    }
     entry = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "logName": f"{gateway_resource}/logs/agentgateway.googleapis.com%2Fegress_policy",
-        "severity": "INFO" if decision == "ALLOW" else "ERROR",
+        "logName": f"projects/{project_id}/logs/agentgateway.googleapis.com%2Fegress_policy",
+        "severity": severity,
         "resource": {
             "type": "networkservices.googleapis.com/AgentGateway",
             "labels": {
                 "gateway_name": "agw-travel-secure",
                 "mode": cp_card.get("governed_access_path", "AGENT_TO_ANYWHERE"),
-                "location": os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1"),
+                "location": location,
                 "mtls_psc_endpoint": cp_card.get("mtls_endpoint", "local-simulator"),
             },
         },
-        "jsonPayload": {
-            "decision": decision,
-            "reason": reason,
-            "caller_spiffe_jwt_svid": spiffe_id or "MISSING",
-            "sts_token_exchange": "VERIFIED" if spiffe_id in authorized_ids else "REJECTED",
-            "destination_uri": target_url,
-            "http_status": http_status,
-            "control_plane_resource": cp_card.get("resource_name", gateway_resource),
-        },
+        "jsonPayload": json_payload,
     }
     _AUDIT_LOG_BUFFER.append(entry)
+
+    token = _get_gcp_access_token()
+    if token and project_id != "YOUR_PROJECT_ID":
+        try:
+            with httpx.Client(timeout=2.0) as client:
+                client.post(
+                    "https://logging.googleapis.com/v2/entries:write",
+                    headers={"Authorization": f"Bearer {token}"},
+                    json={
+                        "logName": f"projects/{project_id}/logs/agentgateway.googleapis.com%2Fegress_policy",
+                        "resource": {
+                            "type": "generic_node",
+                            "labels": {
+                                "project_id": project_id,
+                                "location": location,
+                                "namespace": "networkservices.googleapis.com/AgentGateway",
+                                "node_id": "agw-travel-secure",
+                            },
+                        },
+                        "entries": [
+                            {
+                                "severity": severity,
+                                "jsonPayload": json_payload,
+                            }
+                        ],
+                    },
+                )
+        except Exception:
+            pass
+
     print(f"[AGENT-GATEWAY-AUDIT] {decision} | {reason} | spiffe={spiffe_id} | dest={target_url}", flush=True)
     return entry
 

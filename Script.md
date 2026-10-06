@@ -209,9 +209,8 @@ gcloud run services list --region=us-central1
    - **Console Path**: *Observability -> Logging -> Logs Explorer* (`https://console.cloud.google.com/logs/query`)
    - Query to paste in Logs Explorer:
      ```text
-     resource.type="cloud_run_revision"
-     resource.labels.service_name="agw-travel-secure"
-     "AGENT-GATEWAY-AUDIT"
+     log_id("agentgateway.googleapis.com/egress_policy")
+     jsonPayload.decision=("ALLOW" OR "DENY")
      ```
 
 #### ⌨️ Commands to Execute
