@@ -21,7 +21,7 @@ Demonstrates moving a multi-agent fleet (**Travel Router**, **Travel Planner**, 
 
 ```mermaid
 flowchart TB
-    User["👤 Executive User (Alex Rivera)<br/>Browser Chat UI / CLI"]
+    User["👤 Executive User (Alex Rivera)<br/>Web Chat UI / CLI"]
 
     subgraph CloudRun["Google Cloud Run — Stateless ADK Agent Fleet (us-central1)"]
         Router["🧭 Travel Router Agent<br/>(travel-router)"]
@@ -34,7 +34,8 @@ flowchart TB
         SessionDB[("🗄️ Cloud Firestore<br/>(SESSION_STORE_URI)")]
     end
 
-    Gateway["🛡️ Agent Gateway (agw-travel-secure)<br/>SPIFFE JWT-SVID STS Check + Default DENY Egress"]
+    AGWControl["🎛️ GCP Network Services AgentGateway<br/>(agw-travel-secure | AGENT_TO_ANYWHERE / MCP)"]
+    Gateway["🛡️ Agent Gateway Data Plane (agw-travel-secure)<br/>SPIFFE JWT-SVID STS Check + Default DENY Egress"]
 
     subgraph CorpVPC["Corporate VPC — Private Service Connect (PSC)"]
         MCP["🏢 Corporate MCP Server + DB<br/>Budget Caps, Cabin Rules & OFAC Embargoes"]
@@ -51,6 +52,7 @@ flowchart TB
     Planner --> Gateway
     Policy --> Gateway
     Router -.->|"Exfil Attempt"| Gateway
+    AGWControl -.->|"agentGatewayCard (mTLS PSC)"| Gateway
     Gateway -->|"✅ ALLOW"| AirlineAPI
     Gateway -->|"✅ ALLOW (PSC)"| MCP
     Gateway -.->|"🛑 403 DENY"| Attacker
