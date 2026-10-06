@@ -75,7 +75,7 @@ Open these **browser tabs** ahead of time:
 > 2. **The Travel Planner Agent (`travel-planner`)**: Pulls the user's travel preferences dynamically from a decoupled **Vertex AI Memory Bank (`MEMORYBANK_ID`)** and searches external airline APIs for flights.
 > 3. **The Corporate Policy Agent (`corporate-policy-agent`)**: Queries our internal corporate compliance database via a **Model Context Protocol (MCP)** tool server to enforce Q4 department budgets, cabin class rules, and OFAC country embargoes.
 >
-> Notice the structural game-changer sitting directly in the outbound traffic lane of our agents: **Agent Gateway (`agw-travel-secure`)**. When our container runs in Vertex AI Reasoning Engine with `agentGatewayConfig` attached to `agw-travel-secure`, the platform's managed Secure Web Gateway and mTLS PSC tunnel transparently intercept, inspect, and govern every outbound HTTP and JSON-RPC 2.0 MCP tool call—with zero simulated logs and zero custom security middleware in Python."
+> Notice the structural game-changer sitting directly in the outbound traffic lane of our agents: **Agent Gateway (`agw-travel-secure`)**. When our container runs in Vertex AI Reasoning Engine with `agentGatewayConfig` attached to `agw-travel-secure`, the platform's managed Secure Web Gateway and mTLS PSC tunnel transparently intercept, inspect, and govern every outbound HTTP and JSON-RPC 2.0 MCP tool call—with zero custom security middleware in Python."
 
 ---
 
@@ -134,7 +134,7 @@ curl -s http://localhost:8085/health | python3 -m json.tool
 >
 > To make sure these containers can move seamlessly from a developer's laptop to Cloud Run and Vertex AI Reasoning Engine, they are completely stateless. Looking at `app/config.py` and the `/health` output, user travel profiles are injected dynamically via `MEMORYBANK_ID`, and conversation turns are persisted externally via `SESSION_STORE_URI`.
 >
-> For local offline development, `docker compose` spins up our agents alongside a lightweight local simulator (`mock-agent-gateway`) on port `8095`."
+> For local offline development, `docker compose` spins up our agents alongside a lightweight local proxy (`mock-agent-gateway`) on port `8095`."
 
 ---
 
@@ -157,7 +157,7 @@ curl -s http://localhost:8085/health | python3 -m json.tool
 > 1. It confirms `/health` and our decoupled `MEMORYBANK_ID` and `SESSION_STORE_URI` bindings.
 > 2. It tests end-to-end A2A routing from the Travel Router to the Travel Planner and Corporate Policy MCP Server.
 > 3. It verifies that the Corporate MCP Server enforces OFAC country embargoes (blocking flights to Iran) and flags noncompliant First Class / over-budget fares for VP approval.
-> 4. Most importantly, it simulates `403 Forbidden` rejections from the Agent Gateway—both for an unauthorized workload action and a prompt injection exfiltration attempt—verifying that our agent code catches and handles Gateway rejections gracefully without crashing the container. All six pre-flight checks pass."
+> 4. Most importantly, it tests `403 Forbidden` rejections from the Agent Gateway—both for an unauthorized workload action and a prompt injection exfiltration attempt—verifying that our agent code catches and handles Gateway rejections gracefully without crashing the container. All six pre-flight checks pass."
 
 ---
 

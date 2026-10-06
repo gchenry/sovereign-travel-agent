@@ -50,7 +50,7 @@ flowchart TB
     Planner -->|"Fetch Traveler Profile"| MemBank
     Planner -->|"Outbound Flight Lookup (mTLS PSC)"| AGWControl
     Policy -->|"Outbound JSON-RPC MCP Call (mTLS PSC)"| AGWControl
-    RE -.->|"Simulated Prompt Injection Exfil"| AGWControl
+    RE -.->|"Prompt Injection Exfil Attempt"| AGWControl
 
     Registry -.->|"Endpoint & MCP Tool-Spec Discovery"| AGWControl
     AGWControl <-->|"Enforced Request Authz"| Authz
@@ -108,7 +108,7 @@ sequenceDiagram
     Router-->>User: POLICY_BLOCKED_EMBARGO or POLICY_VIOLATION_REQUIRES_APPROVAL
 
     Note over User,Airline: Scenario 4: Unauthorized MCP Tool / Identity Blocked at Gateway (403 DENIED)
-    User->>Router: Simulate Rogue Caller / Unauthorized Tool (override_spiffe_id)
+    User->>Router: Trigger Rogue Caller / Unauthorized Tool (override_spiffe_id)
     Router->>Policy: Invoke MCP with override_spiffe_id
     Policy->>GW: POST /mcp/call-tool (method="tools/call", name="override_department_budget")
     GW->>IAP: Evaluate CEL (mcp.toolName in ['verify_travel_compliance', ''])

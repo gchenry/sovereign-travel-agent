@@ -10,7 +10,7 @@ Demonstrates moving a multi-agent fleet (**Travel Router**, **Travel Planner**, 
 
 1. **Modular Python ADK & FastAPI (`/app`)**:
    - Exposes `/health`, `/invoke`, `/api/reasoning_engine`, and the interactive **Zero-Trust Chat Console (`/`)** inside [`app/main.py`](./app/main.py).
-   - Zero custom mTLS or JWT validation code in Python—and zero simulated telemetry (`entries:write`). In cloud production (`AGENT_GATEWAY_URL=native`), outbound HTTP and JSON-RPC 2.0 MCP traffic is intercepted directly by Google Cloud's native **Agent Gateway (`agw-travel-secure`)**.
+   - Zero custom mTLS or JWT validation code in Python. In cloud production (`AGENT_GATEWAY_URL=native`), outbound HTTP and JSON-RPC 2.0 MCP traffic is intercepted directly by Google Cloud's native **Agent Gateway (`agw-travel-secure`)**.
 2. **Decoupled State & Memory**:
    - `MEMORYBANK_ID`: Dynamically injects user travel profiles into the Travel Planner Agent without hardcoding.
    - `SESSION_STORE_URI`: Persists multi-turn state externally in Cloud Firestore (`agent-session-store`) so containers remain 100% stateless across local Docker, Cloud Run, and Vertex AI Reasoning Engine.
@@ -66,7 +66,7 @@ flowchart TB
     AGW -.->|"🛑 403 DENIED (override_department_budget)"| MCP
     AGW -.->|"🛑 403 DENIED (Unlisted Host)"| Attacker
 ```
-*(Note: Local Docker Compose and `./scripts/agy test` use `AGENT_GATEWAY_URL=http://mock-agent-gateway:8095` routed through the local container simulator [`services/mock_gateway/proxy.py`](./services/mock_gateway/proxy.py), whereas Cloud deployments use `AGENT_GATEWAY_URL=native` governed directly by Google Cloud `AgentGateway`, `AgentRegistry`, and `AuthzPolicy`. See [`implementation_plan.md`](./implementation_plan.md) for the full detailed architecture and sequence diagrams.)*
+*(Note: Local Docker Compose and `./scripts/agy test` use `AGENT_GATEWAY_URL=http://mock-agent-gateway:8095` routed through the local proxy [`services/mock_gateway/proxy.py`](./services/mock_gateway/proxy.py), whereas Cloud deployments use `AGENT_GATEWAY_URL=native` governed directly by Google Cloud `AgentGateway`, `AgentRegistry`, and `AuthzPolicy`. See [`implementation_plan.md`](./implementation_plan.md) for the full detailed architecture and sequence diagrams.)*
 
 ---
 
