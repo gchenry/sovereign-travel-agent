@@ -2,29 +2,32 @@
 
 Reference implementation for **Session 2: Enterprise Multi-Agent Systems & Platform Governance (Govern Pillar)**.
 
-Demonstrates moving a multi-agent fleet (**Travel Router**, **Travel Planner**, and **Corporate Policy Agent**) from **local Docker containers** to **Google Cloud Run**, replacing custom Python security middleware with platform-enforced Zero-Trust governance via **Google Cloud Agent Gateway (`agw-travel-secure`)**.
+Demonstrates moving a multi-agent fleet (**Travel Router**, **Travel Planner**, and **Corporate Policy Agent**) from **local Docker containers** to **Google Cloud Run** and **Vertex AI Reasoning Engine (BYOC)**, replacing custom Python security middleware with platform-enforced Zero-Trust governance via **Google Cloud Agent Gateway (`agw-travel-secure`)**.
 
 ---
 
 ## Architecture Highlights
 
 1. **Modular Python ADK & FastAPI (`/app`)**:
-   - Exposes `/health`, `/invoke`, and the interactive **Zero-Trust Chat Console (`/`)** inside [`app/main.py`](./app/main.py).
-   - Zero custom mTLS or JWT validation code in Python—the platform handles SPIFFE (`JWT-SVID`) verification via Google Security Token Service (STS) and egress enforcement.
+   - Exposes `/health`, `/invoke`, `/api/reasoning_engine`, and the interactive **Zero-Trust Chat Console (`/`)** inside [`app/main.py`](./app/main.py).
+   - Zero custom mTLS or JWT validation code in Python—and zero simulated telemetry (`entries:write`). In cloud production (`AGENT_GATEWAY_URL=native`), outbound HTTP and JSON-RPC 2.0 MCP traffic is intercepted directly by Google Cloud's native **Agent Gateway (`agw-travel-secure`)**.
 2. **Decoupled State & Memory**:
    - `MEMORYBANK_ID`: Dynamically injects user travel profiles into the Travel Planner Agent without hardcoding.
-   - `SESSION_STORE_URI`: Persists multi-turn state externally so containers remain 100% stateless across local Docker and Cloud Run.
-3. **Zero-Trust Egress & Secure Corporate MCP**:
-   - Outbound calls from the agent fleet traverse `agw-travel-secure`.
-   - Internal Corporate MCP Server calls traverse Private Service Connect (PSC) after SPIFFE `JWT-SVID` verification to enforce Q4 department budgets, cabin class rules, and OFAC country embargoes.
-   - Simulated **Prompt Injection Exfiltration** attempts are actively blocked at the Agent Gateway perimeter and logged to Cloud Logging (teeing up the Datadog observability handoff).
+   - `SESSION_STORE_URI`: Persists multi-turn state externally in Cloud Firestore (`agent-session-store`) so containers remain 100% stateless across local Docker, Cloud Run, and Vertex AI Reasoning Engine.
+3. **Zero-Trust Egress, Agent Registry `tool-spec`, & IAP CEL Enforcement**:
+   - The BYOC **Vertex AI Reasoning Engine (`sovereign-travel-router-agent`)** runs with `identityType: AGENT_IDENTITY` and `deploymentSpec.agentGatewayConfig.agentToAnywhereConfig.agentGateway` bound to `agw-travel-secure` (with `agw-travel-secure`'s `rootCertificates` installed in [`Dockerfile`](./Dockerfile) via `update-ca-certificates`).
+   - **Google Cloud Agent Registry** registers `corporate-mcp-service` with [`deploy/mcp_toolspec.json`](./deploy/mcp_toolspec.json) (`--mcp-server-spec-type=tool-spec`, `protocolBinding=JSONRPC`) and `mock-airline-service` (`protocolBinding=HTTP_JSON`).
+   - **Network Security `AuthzPolicy` (`travel-agw-authz-policy`) + `AuthzExtension` (`travel-agw-authz-ext` -> `iap.googleapis.com`, `failOpen: false`)** evaluates IAP `roles/iap.egressor` bindings and CEL conditions (`api.getAttribute('iap.googleapis.com/mcp.toolName', '') in ['verify_travel_compliance', '']`) in flight:
+     - Authorized flight lookups and `verify_travel_compliance` MCP tool calls return `200 OK` (`authzPolicyInfo.result: "ALLOWED"`).
+     - Unauthorized MCP tool calls (`override_department_budget` in Scenario 4) and prompt-injection exfiltration attempts (`https://exfil-vault.attacker-analytics.io/collect` in Scenario 5) are natively blocked at `agw-travel-secure` with HTTP `403 Forbidden` (`authzPolicyInfo.result: "DENIED"`) and logged to `networkservices.googleapis.com/Gateway`.
 
 ```mermaid
 flowchart TB
     User["👤 Executive User (Alex Rivera)<br/>Web Chat UI / CLI"]
 
-    subgraph CloudRun["Google Cloud Run — Stateless ADK Agent Fleet (us-central1)"]
-        Router["🧭 Travel Router Agent<br/>(travel-router)"]
+    subgraph CloudRun["Google Cloud Run & Vertex AI Reasoning Engine (us-central1)"]
+        RouterCR["🌐 Cloud Run Entrypoint<br/>(travel-router)"]
+        RE["🧠 Vertex AI Reasoning Engine (BYOC)<br/>sovereign-travel-router-agent<br/>identityType: AGENT_IDENTITY"]
         Planner["✈️ Travel Planner Agent<br/>(travel-planner)"]
         Policy["📋 Corporate Policy Agent<br/>(corporate-policy-agent)"]
     end
@@ -34,10 +37,10 @@ flowchart TB
         SessionDB[("🗄️ Cloud Firestore<br/>(SESSION_STORE_URI)")]
     end
 
-    subgraph GCPGovernance["Google Cloud Native Agent Gateway Perimeter"]
-        AGW["🛡️ Network Services AgentGateway (agw-travel-secure)<br/>AGENT_TO_ANYWHERE / MCP + mTLS PSC Card"]
-        Registry["📒 Google Cloud Agent Registry<br/>(corporate-mcp-service & mock-airline-service)"]
-        Authz["🔒 Network Security AuthzPolicy<br/>(travel-agw-authz-policy + travel-agw-authz-ext)"]
+    subgraph GCPGovernance["Google Cloud Native Agent Gateway Perimeter (agw-travel-secure)"]
+        AGW["🛡️ Network Services AgentGateway (agw-travel-secure)<br/>AGENT_TO_ANYWHERE / MCP + TLS Inspection + mTLS PSC"]
+        Registry["📒 Google Cloud Agent Registry<br/>• corporate-mcp-service (tool-spec JSON-RPC)<br/>• mock-airline-service (HTTP_JSON)"]
+        Authz["🔒 Network Security AuthzPolicy + IAP CEL<br/>(travel-agw-authz-policy + travel-agw-authz-ext)<br/>mcp.toolName == 'verify_travel_compliance'"]
     end
 
     subgraph CorpVPC["Corporate VPC — Private Service Connect (PSC)"]
@@ -45,23 +48,25 @@ flowchart TB
     end
 
     AirlineAPI["🛫 Authorized Airline API<br/>(mock-airline-api)"]
-    Attacker["🏴‍☠️ Prompt Injection Exfil Target<br/>(attacker-analytics.io) — ❌ 403 BLOCKED"]
+    Attacker["🏴‍☠️ Prompt Injection Exfil Target<br/>(exfil-vault.attacker-analytics.io) — ❌ 403 DENIED"]
 
-    User --> Router
-    Router <--> SessionDB
-    Router -->|"A2A"| Planner
-    Router -->|"A2A"| Policy
+    User --> RouterCR
+    RouterCR -->|"Delegates /api/invoke"| RE
+    RE <--> SessionDB
+    RE --> Planner
+    RE --> Policy
     Planner --> MemBank
     Planner --> AGW
     Policy --> AGW
-    Router -.->|"Exfil Attempt"| AGW
-    Registry -.->|"Registered Endpoints"| AGW
-    Authz -.->|"Request Authz"| AGW
-    AGW -->|"✅ ALLOW"| AirlineAPI
-    AGW -->|"✅ ALLOW (PSC)"| MCP
-    AGW -.->|"🛑 403 DENY"| Attacker
+    RE -.->|"Exfil Attempt"| AGW
+    Registry -.->|"Registered Endpoints & MCP Tool-Spec"| AGW
+    Authz -.->|"Enforced IAP + CEL Authz"| AGW
+    AGW -->|"✅ 200 ALLOWED"| AirlineAPI
+    AGW -->|"✅ 200 ALLOWED (verify_travel_compliance)"| MCP
+    AGW -.->|"🛑 403 DENIED (override_department_budget)"| MCP
+    AGW -.->|"🛑 403 DENIED (Unlisted Host)"| Attacker
 ```
-*(Note: Local Docker Compose uses `services/mock_gateway/proxy.py` as a local emulator for `agy test`, whereas Cloud Run uses `AGENT_GATEWAY_URL=native` bound directly to Google Cloud `AgentGateway`, `AgentRegistry`, and `AuthzPolicy`. See [`implementation_plan.md`](./implementation_plan.md) for the full detailed architecture and sequence diagrams.)*
+*(Note: Local Docker Compose and `./scripts/agy test` use `AGENT_GATEWAY_URL=http://mock-agent-gateway:8095` routed through the local container simulator [`services/mock_gateway/proxy.py`](./services/mock_gateway/proxy.py), whereas Cloud deployments use `AGENT_GATEWAY_URL=native` governed directly by Google Cloud `AgentGateway`, `AgentRegistry`, and `AuthzPolicy`. See [`implementation_plan.md`](./implementation_plan.md) for the full detailed architecture and sequence diagrams.)*
 
 ---
 
@@ -86,12 +91,12 @@ Run `agy test` to verify routing, MCP tool usage, and graceful handling of Agent
 ./scripts/agy test
 ```
 
-### 3. Promoting Local Containers to Cloud Run & Platform Config (`00:29 - 00:32`)
-Inspect the `ReasoningEngine` deployment specification binding the agent to `agw-travel-secure`:
+### 3. Promoting Local Containers to Cloud Run & Reasoning Engine (`00:29 - 00:32`)
+Inspect the `ReasoningEngine` deployment specification binding the agent container to `agw-travel-secure`:
 ```bash
 cat deploy/reasoning_engine_spec.json
 ```
-Provision the GCP infrastructure and promote the validated local containers to Artifact Registry & Cloud Run:
+Provision the GCP infrastructure and promote the validated local containers to Artifact Registry, Cloud Run, and Vertex AI Reasoning Engine:
 ```bash
 ./deploy/setup_gcp_resources.sh
 ./deploy/promote_local_to_cloudrun.sh
@@ -100,14 +105,28 @@ Provision the GCP infrastructure and promote the validated local containers to A
 ### 4. Interactive Web Chat Console & Live Egress Block Demo (`00:32 - 00:35`)
 Open the **Zero-Trust Web Chat & Governance Console** in your browser:
 - **Local Docker**: `http://localhost:8085/`
-- **Cloud Run (via authenticated proxy)**:
+- **Cloud Run + Reasoning Engine (via authenticated proxy)**:
   ```bash
   gcloud run services proxy travel-router --region=us-central1 --port=8090
   # Then open http://localhost:8090/
   ```
-Or run the 5-scenario CLI walkthrough runner (Compliant Booking, OFAC Embargo Block for Iran, Noncompliant First Class / Fare Cap, Rogue SPIFFE ID `403`, and Prompt Injection Exfiltration `403`):
+Or run the 5-scenario CLI walkthrough runner (Compliant Booking, OFAC Embargo Block for Iran, Noncompliant First Class / Fare Cap, Unauthorized MCP Tool / Identity `403`, and Prompt Injection Exfiltration `403`):
 ```bash
+# Against Local Docker:
 .venv/bin/python scripts/run_demo_scenarios.py
+
+# Against Live Cloud Run + ReasoningEngine + agw-travel-secure:
+ROUTER_URL="$(gcloud run services describe travel-router --region=us-central1 --format='value(status.url)')"
+TARGET_ROUTER_URL="${ROUTER_URL}" .venv/bin/python scripts/run_demo_scenarios.py
+```
+
+### 5. Native Cloud Logging Filter (`networkservices.googleapis.com/Gateway`)
+To view the native `ALLOWED` (`200`) and `DENIED` (`403`) decisions emitted directly by Google Cloud's `agw-travel-secure` service in Cloud Logging (Logs Explorer):
+```text
+resource.type="networkservices.googleapis.com/Gateway"
+resource.labels.gateway_name="agw-travel-secure"
+httpRequest.requestMethod!="CONNECT"
+NOT httpRequest.requestUrl:"googleapis.com"
 ```
 
 ---
@@ -124,6 +143,9 @@ export REGION="us-central1"
 gcloud services enable \
   aiplatform.googleapis.com \
   networkservices.googleapis.com \
+  networksecurity.googleapis.com \
+  agentregistry.googleapis.com \
+  iap.googleapis.com \
   run.googleapis.com \
   artifactregistry.googleapis.com \
   cloudbuild.googleapis.com \
@@ -159,14 +181,6 @@ done
 gcloud iam workload-identity-pools create "agent-fleet-wi-pool" \
   --location="global" \
   --display-name="Agent Fleet SPIFFE JWT-SVID Pool" \
-  --project="${PROJECT_ID}"
-
-gcloud iam workload-identity-pools providers create-oidc "spiffe-jwt-svid-provider" \
-  --workload-identity-pool="agent-fleet-wi-pool" \
-  --location="global" \
-  --issuer-uri="https://sts.googleapis.com" \
-  --allowed-audiences="https://sts.googleapis.com/v1/token" \
-  --attribute-mapping="google.subject=assertion.sub" \
   --project="${PROJECT_ID}"
 ```
 
@@ -230,37 +244,21 @@ gcloud compute service-attachments create corp-mcp-psc-attachment \
   --region="${REGION}" --producer-forwarding-rule=corp-mcp-ilb-forwarding-rule \
   --connection-preference=ACCEPT_AUTOMATIC --nat-subnets=corp-mcp-psc-nat-subnet \
   --project="${PROJECT_ID}"
+
+gcloud compute network-attachments create corp-agw-net-attachment \
+  --region="${REGION}" --connection-preference=ACCEPT_AUTOMATIC \
+  --subnets=corp-sovereign-subnet --project="${PROJECT_ID}"
 ```
 
-### 6. Vertex AI Reasoning Engine, Memory Bank (`MEMORYBANK_ID`) & Network Services Agent Gateway (`agw-travel-secure`)
+### 6. Network Services Agent Gateway (`agw-travel-secure`), `AuthzExtension`, & `AuthzPolicy`
 ```bash
-ADC_TOKEN="$(gcloud auth application-default print-access-token)"
-
-# Create the ReasoningEngine with Memory Bank enabled
-curl -X POST \
-  -H "Authorization: Bearer ${ADC_TOKEN}" \
-  -H "Content-Type: application/json" \
-  "https://${REGION}-aiplatform.googleapis.com/v1beta1/projects/${PROJECT_ID}/locations/${REGION}/reasoningEngines" \
-  -d '{
-    "displayName": "sovereign-travel-router-agent",
-    "description": "Sovereign Travel & Expense Router Agent governed by Agent Gateway (Egress Mode)"
-  }'
-
-# Seed Traveler Profile Memory into the ReasoningEngine Memory Bank
-curl -X POST \
-  -H "Authorization: Bearer ${ADC_TOKEN}" \
-  -H "Content-Type: application/json" \
-  "https://${REGION}-aiplatform.googleapis.com/v1beta1/projects/${PROJECT_ID}/locations/${REGION}/reasoningEngines/${REASONING_ENGINE_ID}/memories" \
-  -d '{
-    "fact": "User exec-user-001 (Alex Rivera, VP of Global Engineering) prefers Business Class, Window seat (A/K), Vegetarian meal, home airport SFO, Pacific Star Airlines.",
-    "scope": {"user_id": "exec-user-001"}
-  }'
+PROJECT_NUMBER="$(gcloud projects describe "${PROJECT_ID}" --format='value(projectNumber)')"
 
 # Provision the Google Cloud Network Services AgentGateway (AGENT_TO_ANYWHERE / MCP)
-gcloud network-services agent-gateways import agw-travel-secure \
+gcloud beta network-services agent-gateways import agw-travel-secure \
   --location="${REGION}" \
   --project="${PROJECT_ID}" \
-  --quiet << 'EOF'
+  --quiet << EOF
 description: Zero-Trust Egress Gateway for the Travel & Expense Sovereign Fleet
 labels:
   pillar: govern
@@ -269,10 +267,44 @@ googleManaged:
   governedAccessPath: AGENT_TO_ANYWHERE
 protocols:
   - MCP
+registries:
+  - //agentregistry.googleapis.com/projects/${PROJECT_ID}/locations/${REGION}
+networkConfig:
+  egress:
+    networkAttachment: projects/${PROJECT_ID}/regions/${REGION}/networkAttachments/corp-agw-net-attachment
+EOF
+
+# Enforced IAP AuthzExtension & AuthzPolicy
+gcloud beta service-extensions authz-extensions import travel-agw-authz-ext \
+  --project="${PROJECT_ID}" \
+  --location="${REGION}" \
+  --quiet << 'EOF'
+name: travel-agw-authz-ext
+service: iap.googleapis.com
+failOpen: false
+timeout: 1s
+metadata:
+  iapPolicyVersion: "V1"
+EOF
+
+gcloud network-security authz-policies import travel-agw-authz-policy \
+  --project="${PROJECT_ID}" \
+  --location="${REGION}" \
+  --quiet << EOF
+name: projects/${PROJECT_ID}/locations/${REGION}/authzPolicies/travel-agw-authz-policy
+target:
+  resources:
+    - projects/${PROJECT_NUMBER}/locations/${REGION}/agentGateways/agw-travel-secure
+policyProfile: REQUEST_AUTHZ
+action: CUSTOM
+customProvider:
+  authzExtension:
+    resources:
+      - projects/${PROJECT_NUMBER}/locations/${REGION}/authzExtensions/travel-agw-authz-ext
 EOF
 ```
 
-### 7. Build, Push & Promote Containers to Cloud Run
+### 7. Build, Push & Promote Containers to Cloud Run + Agent Registry
 ```bash
 ./deploy/promote_local_to_cloudrun.sh
 ```
