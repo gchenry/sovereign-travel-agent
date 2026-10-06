@@ -86,7 +86,7 @@ Open these **browser tabs** ahead of time:
    - **Console Path**: *Network Services -> Private Service Connect -> Published services* (`https://console.cloud.google.com/net-services/psc/list/publishedServices`)
    - Highlight `corp-mcp-psc-attachment` backed by `corp-mcp-ilb-forwarding-rule` inside `corp-sovereign-vpc`.
 2. **IDE Files**:
-   - Open [`deploy/mcp_toolspec.json`](./deploy/mcp_toolspec.json) (Highlight the MCP `tools` schema registered in Google Cloud Agent Registry: `verify_travel_compliance` vs. `override_department_budget`).
+   - Open [`deploy/mcp_toolspec.json`](./deploy/mcp_toolspec.json) (Highlight the MCP `tools` schema registered in **Gemini Enterprise Agent Registry**: `verify_travel_compliance` vs. `override_department_budget`).
    - Open [`deploy/agent_gateway_policy.yaml`](./deploy/agent_gateway_policy.yaml) (Highlight `AGENT_TO_ANYWHERE_EGRESS`, `SPIFFE_JWT_SVID`, `privateServiceConnectTargets`, and `egressPolicy: defaultAction: DENY`).
 
 ### 🎙️ Talk Track
@@ -96,7 +96,7 @@ Open these **browser tabs** ahead of time:
 >
 > First, **Cryptographic Agent Identity (`AGENT_IDENTITY`)**: Every agent workload is issued a cryptographic workload identity (`principal://agents.global.org-.../reasoningEngines/...`) backed by mTLS client certificates and SPIFFE `JWT-SVID` tokens.
 >
-> Second, **Deep MCP Protocol Inspection via Agent Registry & IAP CEL**: Look at `deploy/mcp_toolspec.json`. We register our Corporate MCP Server in **Google Cloud Agent Registry** with its JSON-RPC 2.0 tool specification. Through **Network Security `AuthzPolicy`** (`travel-agw-authz-policy`) and **IAP**, `agw-travel-secure` inspects the JSON-RPC `tools/call` body in flight—allowing `verify_travel_compliance` while natively blocking unauthorized tool calls like `override_department_budget` with an HTTP `403 Forbidden` at the gateway!
+> Second, **Deep MCP Protocol Inspection via Agent Registry & IAP CEL**: Look at `deploy/mcp_toolspec.json`. We register our Corporate MCP Server in **Gemini Enterprise Agent Registry** with its JSON-RPC 2.0 tool specification. Through **Network Security `AuthzPolicy`** (`travel-agw-authz-policy`) and **IAP**, `agw-travel-secure` inspects the JSON-RPC `tools/call` body in flight—allowing `verify_travel_compliance` while natively blocking unauthorized tool calls like `override_department_budget` with an HTTP `403 Forbidden` at the gateway!
 >
 > Third, **Default-Deny Egress & Private Service Connect (PSC)**: Only endpoints registered in Agent Registry and granted `roles/iap.egressor` can be reached. Any unlisted external domain is terminated at `agw-travel-secure` with a `403`."
 
