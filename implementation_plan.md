@@ -10,21 +10,21 @@ Reference architecture for **Session 2: Enterprise Multi-Agent Systems & Platfor
 flowchart TB
     User["👤 Executive User (Alex Rivera)<br/>Web Chat UI (localhost:8090 / 8085) or CLI"]
 
-    subgraph CloudRuntime["Google Cloud Run & Vertex AI Reasoning Engine (us-central1)"]
+    subgraph CloudRuntime["Google Cloud Run & Gemini Enterprise Agent Engine (us-central1)"]
         RouterCR["🌐 Travel Router Service (Cloud Run)<br/>(travel-router)<br/>Web UI + REST Entrypoint"]
-        RE["🧭 Vertex AI Reasoning Engine (BYOC)<br/>sovereign-travel-router-agent<br/>• identityType: AGENT_IDENTITY<br/>• agentGatewayConfig -> agw-travel-secure<br/>• Trusted Root CA: agentGatewayCard.rootCertificates"]
+        RE["🧭 Gemini Enterprise Agent Engine (BYOC)<br/>sovereign-travel-router-agent<br/>• identityType: AGENT_IDENTITY<br/>• agentGatewayConfig -> agw-travel-secure<br/>• Trusted Root CA: agentGatewayCard.rootCertificates"]
         Planner["✈️ Travel Planner Agent<br/>(travel-planner)"]
         Policy["📋 Corporate Policy Agent<br/>(corporate-policy-agent)"]
     end
 
     subgraph StateLayer["Decoupled State & Memory Layer"]
-        MemBank[("🧠 Vertex AI Memory Bank<br/>(MEMORYBANK_ID)<br/>ReasoningEngine Memory Store")]
+        MemBank[("🧠 Agent Engine Memory Bank<br/>(MEMORYBANK_ID)<br/>Agent Engine Memory Store")]
         SessionDB[("🗄️ Cloud Firestore<br/>(SESSION_STORE_URI)<br/>agent-session-store")]
     end
 
-    subgraph GovernancePerimeter["Google Cloud Native Agent Gateway Perimeter (agw-travel-secure)"]
-        AGWControl["🎛️ Network Services AgentGateway (agw-travel-secure)<br/>networkservices.googleapis.com/v1/.../agentGateways/agw-travel-secure<br/>• Mode: AGENT_TO_ANYWHERE | Protocol: MCP<br/>• Managed mTLS PSC Card (unitkind1-swp-mtls-psc-sa)<br/>• TLS Inspection + Egress Attachment: corp-agw-net-attachment"]
-        Registry["📒 Google Cloud Agent Registry<br/>agentregistry.googleapis.com/v1alpha/...<br/>• corporate-mcp-service (JSON-RPC tool-spec: deploy/mcp_toolspec.json)<br/>• mock-airline-service (HTTP_JSON)"]
+    subgraph GovernancePerimeter["Gemini Enterprise Native Agent Gateway Perimeter (agw-travel-secure)"]
+        AGWControl["🎛️ Gemini Enterprise Agent Gateway (agw-travel-secure)<br/>networkservices.googleapis.com/v1/.../agentGateways/agw-travel-secure<br/>• Mode: AGENT_TO_ANYWHERE | Protocol: MCP<br/>• Managed mTLS PSC Card (unitkind1-swp-mtls-psc-sa)<br/>• TLS Inspection + Egress Attachment: corp-agw-net-attachment"]
+        Registry["📒 Gemini Enterprise Agent Registry<br/>agentregistry.googleapis.com/v1alpha/...<br/>• corporate-mcp-service (JSON-RPC tool-spec: deploy/mcp_toolspec.json)<br/>• mock-airline-service (HTTP_JSON)"]
         Authz["🛡️ Network Security AuthzPolicy & IAP CEL<br/>• travel-agw-authz-policy + travel-agw-authz-ext (failOpen: false)<br/>• IAP roles/iap.egressor bound to AGENT_IDENTITY<br/>• CEL Rule: iap.googleapis.com/mcp.toolName in ['verify_travel_compliance', '']"]
     end
 
@@ -71,7 +71,7 @@ flowchart TB
 sequenceDiagram
     autonumber
     actor User as Executive User
-    participant Router as Travel Router (Cloud Run + ReasoningEngine)
+    participant Router as Travel Router (Cloud Run + Agent Engine)
     participant Planner as Travel Planner Agent
     participant Policy as Corporate Policy Agent
     participant GW as Native Agent Gateway (agw-travel-secure)

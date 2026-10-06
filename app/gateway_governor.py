@@ -3,7 +3,7 @@
 Architecture:
 - Local Docker / `agy test` (`AGENT_GATEWAY_URL=http://mock-agent-gateway:8095`):
   Routes outbound calls through the local container simulator (`services/mock_gateway/proxy.py`).
-- Cloud Production (`AGENT_GATEWAY_URL=native` inside Vertex AI ReasoningEngine with `agw-travel-secure`):
+- Cloud Production (`AGENT_GATEWAY_URL=native` inside Gemini Enterprise Agent Engine with `agw-travel-secure`):
   All outbound HTTP/MCP requests are sent directly over the network and intercepted at the
   platform perimeter by Google Cloud's native Agent Gateway (`projects/{PROJECT_ID}/locations/{REGION}/agentGateways/agw-travel-secure`),
   `AuthzPolicy` (`travel-agw-authz-policy`), `AuthzExtension` (`travel-agw-authz-ext` -> `iap.googleapis.com`),

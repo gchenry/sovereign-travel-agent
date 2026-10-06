@@ -9,7 +9,7 @@
 #   5. VPC (`corp-sovereign-vpc`), Subnets, Proxy Subnet, and PSC NAT Subnet
 #   6. Serverless NEG, Regional Internal Application Load Balancer, and
 #      Private Service Connect (PSC) Service Attachment (`corp-mcp-psc-attachment`)
-#   7. Vertex AI Memory Bank & Agent Gateway (`agw-travel-secure`) registration
+#   7. Gemini Enterprise Agent Engine, Memory Bank & Agent Gateway (`agw-travel-secure`) registration
 # ==============================================================================
 set -euo pipefail
 
@@ -231,7 +231,7 @@ if ! gcloud compute service-attachments describe "corp-mcp-psc-attachment" --reg
     --project="${PROJECT_ID}"
 fi
 
-echo "==> [7/7] Creating Vertex AI ReasoningEngine, Memory Bank, & Seeding Firestore..."
+echo "==> [7/7] Creating Gemini Enterprise Agent Engine, Memory Bank, & Seeding Firestore..."
 ADC_TOKEN="$(gcloud auth application-default print-access-token)"
 
 # Seed Firestore `corp-travel-db` policy record
@@ -249,7 +249,7 @@ curl -s -X PATCH \
     }
   }' >/dev/null
 
-# Create Vertex AI ReasoningEngine (`sovereign-travel-router-agent`) with Memory Bank enabled
+# Create Gemini Enterprise Agent Engine (`sovereign-travel-router-agent`) with Memory Bank enabled
 RE_OP="$(curl -s -X POST \
   -H "Authorization: Bearer ${ADC_TOKEN}" \
   -H "Content-Type: application/json" \
@@ -262,7 +262,7 @@ RE_OP="$(curl -s -X POST \
 RE_ID="$(echo "${RE_OP}" | python3 -c "import sys, json; data=json.load(sys.stdin); print(data.get('name','').split('/reasoningEngines/')[-1].split('/')[0])" 2>/dev/null || true)"
 
 if [[ -n "${RE_ID}" ]]; then
-  echo "    Created Vertex AI ReasoningEngine ID: ${RE_ID}"
+  echo "    Created Gemini Enterprise Agent Engine ID: ${RE_ID}"
   sleep 3
   curl -s -X POST \
     -H "Authorization: Bearer ${ADC_TOKEN}" \
@@ -308,7 +308,7 @@ fi
 
 PROJECT_NUMBER="$(gcloud projects describe "${PROJECT_ID}" --format='value(projectNumber)')"
 
-# Grant Vertex AI ReasoningEngine service agents permission to pull BYOC images from Artifact Registry
+# Grant Gemini Enterprise Agent Engine service agents permission to pull BYOC images from Artifact Registry
 for sa_agent in \
   "service-${PROJECT_NUMBER}@gcp-sa-aiplatform-re.iam.gserviceaccount.com" \
   "service-${PROJECT_NUMBER}@gcp-sa-aiplatform.iam.gserviceaccount.com"; do

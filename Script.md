@@ -3,7 +3,7 @@
 **Session 2: Enterprise Multi-Agent Systems & Platform Governance (Govern Pillar)**  
 **Presenter:** Len Henry, Global Founder Advocate  
 **Target Duration:** 40 Minutes (Strict)  
-**Key Architectural Theme:** Moving a multi-agent fleet from local containers and standalone custom code to Google Cloud Run, Vertex AI Reasoning Engine (BYOC), and platform-managed Zero-Trust governance via **Google Cloud Agent Gateway (`agw-travel-secure` — Egress Mode)**.
+**Key Architectural Theme:** Moving a multi-agent fleet from local containers and standalone custom code to Google Cloud Run, **Gemini Enterprise Agent Engine (BYOC)**, and platform-managed Zero-Trust governance via **Gemini Enterprise Agent Gateway (`agw-travel-secure` — Egress Mode)**.
 
 ---
 
@@ -16,7 +16,7 @@ cd /usr/local/google/home/gchenry/.gemini/jetski/scratch/sovereign-travel-agent
 set -a && source .env && set +a
 ```
 
-*(Optional — Start the Cloud Run authenticated proxy in a background terminal tab to use the Interactive Web Chat Console against Cloud Run + Reasoning Engine)*:
+*(Optional — Start the Cloud Run authenticated proxy in a background terminal tab to use the Interactive Web Chat Console against Cloud Run + Agent Engine)*:
 ```bash
 gcloud run services proxy travel-router \
   --region=us-central1 \
@@ -25,8 +25,8 @@ gcloud run services proxy travel-router \
 ```
 
 Open these **browser tabs** ahead of time:
-1. **Interactive Web Chat Console (Cloud Run -> ReasoningEngine)**: `http://localhost:8090/` *(or Local Docker at `http://localhost:8085/`)*
-2. **Agent Platform — Gateways (`agw-travel-secure` Details & Observability)**: `https://console.cloud.google.com/net-services/agent-gateway/list?project=${GOOGLE_CLOUD_PROJECT}`
+1. **Interactive Web Chat Console (Cloud Run -> Agent Engine)**: `http://localhost:8090/` *(or Local Docker at `http://localhost:8085/`)*
+2. **Gemini Enterprise — Agent Gateways (`agw-travel-secure` Details & Observability)**: `https://console.cloud.google.com/net-services/agent-gateway/list?project=${GOOGLE_CLOUD_PROJECT}`
 3. **Cloud Run Services List**: `https://console.cloud.google.com/run?project=${GOOGLE_CLOUD_PROJECT}`
 4. **Artifact Registry (`sovereign-travel-repo`)**: `https://console.cloud.google.com/artifacts/docker/${GOOGLE_CLOUD_PROJECT}/us-central1/sovereign-travel-repo?project=${GOOGLE_CLOUD_PROJECT}`
 5. **Private Service Connect (`corp-mcp-psc-attachment`)**: `https://console.cloud.google.com/net-services/psc/list/publishedServices?project=${GOOGLE_CLOUD_PROJECT}`
@@ -47,7 +47,7 @@ Open these **browser tabs** ahead of time:
 >
 > Here is the core architectural challenge every enterprise hits when making this shift: When autonomous agents begin talking to other agents, querying internal corporate databases via MCP, and calling external third-party APIs, how do you police their communication boundaries without forcing your developers to write thousands of lines of custom mTLS and JWT security boilerplate in Python?
 >
-> Today, we'll see how the **Govern Pillar** of the **Gemini Enterprise Agent Platform** solves this at the platform layer using **Google Cloud's Agent Gateway**."
+> Today, we'll see how the **Govern Pillar** of **Gemini Enterprise** solves this at the platform layer using **Agent Gateway**."
 
 ---
 
@@ -55,14 +55,14 @@ Open these **browser tabs** ahead of time:
 
 ### 🖥️ What to Show on Screen
 1. **Slide / Diagram**: *The Travel & Expense Sovereign Fleet Architecture Diagram* (or open `README.md` / `implementation_plan.md` Mermaid diagram).
-2. **Google Cloud Console Tab — Agent Platform -> Gateways (`agw-travel-secure`)**:
+2. **Google Cloud Console Tab — Gemini Enterprise -> Gateways (`agw-travel-secure`)**:
    - **Console Path**: *Agent Platform -> Gateways -> `agw-travel-secure`* (`https://console.cloud.google.com/net-services/agent-gateway/list`)
-   - Highlight `agw-travel-secure` in `us-central1` (`governedAccessPath: AGENT_TO_ANYWHERE`, protocol `MCP`, bound to **Google Cloud Agent Registry**, **Network Security `AuthzPolicy` (`travel-agw-authz-policy`)**, and its Google-managed `mtlsEndpoint` PSC service attachment and TLS inspection Root CA certificate).
+   - Highlight `agw-travel-secure` in `us-central1` (`governedAccessPath: AGENT_TO_ANYWHERE`, protocol `MCP`, bound to **Gemini Enterprise Agent Registry**, **Network Security `AuthzPolicy` (`travel-agw-authz-policy`)**, and its Google-managed `mtlsEndpoint` PSC service attachment and TLS inspection Root CA certificate).
    - Click the **Observability** tab on `agw-travel-secure` to show native gateway traffic metrics and logs.
 3. **Google Cloud Console Tab — Cloud Run Services**:
    - **Console Path**: *Navigation Menu -> Cloud Run -> Services* (`https://console.cloud.google.com/run`)
    - Point out the stateless application services running in `us-central1` (no mock gateway container in Cloud Run):
-     - `travel-router` (Entrypoint + Zero-Trust Chat Console delegating governed egress execution to Vertex AI `ReasoningEngine`)
+     - `travel-router` (Entrypoint + Zero-Trust Chat Console delegating governed egress execution to **Gemini Enterprise Agent Engine**)
      - `travel-planner` (Travel Planner Sub-Agent)
      - `corporate-policy-agent` (Corporate Policy Sub-Agent)
      - `corporate-mcp-server` (Internal Corporate MCP Tool Server)
@@ -72,10 +72,10 @@ Open these **browser tabs** ahead of time:
 > "Let's map out the **Travel & Expense Sovereign Fleet** we're building today. Instead of one monolithic agent doing everything, we break the system into three specialized, autonomous agents packaged in a stateless container image:
 >
 > 1. **The Travel Router Agent (`travel-router`)**: The orchestrator that receives the user's request and coordinates the fleet.
-> 2. **The Travel Planner Agent (`travel-planner`)**: Pulls the user's travel preferences dynamically from a decoupled **Vertex AI Memory Bank (`MEMORYBANK_ID`)** and searches external airline APIs for flights.
+> 2. **The Travel Planner Agent (`travel-planner`)**: Pulls the user's travel preferences dynamically from a decoupled **Agent Engine Memory Bank (`MEMORYBANK_ID`)** and searches external airline APIs for flights.
 > 3. **The Corporate Policy Agent (`corporate-policy-agent`)**: Queries our internal corporate compliance database via a **Model Context Protocol (MCP)** tool server to enforce Q4 department budgets, cabin class rules, and OFAC country embargoes.
 >
-> Notice the structural game-changer sitting directly in the outbound traffic lane of our agents: **Agent Gateway (`agw-travel-secure`)**. When our container runs in Vertex AI Reasoning Engine with `agentGatewayConfig` attached to `agw-travel-secure`, the platform's managed Secure Web Gateway and mTLS PSC tunnel transparently intercept, inspect, and govern every outbound HTTP and JSON-RPC 2.0 MCP tool call—with zero custom security middleware in Python."
+> Notice the structural game-changer sitting directly in the outbound traffic lane of our agents: **Agent Gateway (`agw-travel-secure`)**. When our container runs in **Gemini Enterprise Agent Engine** with `agentGatewayConfig` attached to `agw-travel-secure`, the platform's managed Secure Web Gateway and mTLS PSC tunnel transparently intercept, inspect, and govern every outbound HTTP and JSON-RPC 2.0 MCP tool call—with zero custom security middleware in Python."
 
 ---
 
@@ -132,7 +132,7 @@ curl -s http://localhost:8085/health | python3 -m json.tool
 #### 🎙️ Talk Track
 > "Let's jump into the code. Notice how clean our `/app` directory is. Inside `app/main.py`, we have a lightweight FastAPI wrapper around our modular Python ADK agents exposing `/health` and `/invoke`, plus a built-in Zero-Trust Chat Console at `/`. There are no bulky third-party security libraries or custom JWT validation classes here—the container is pure business logic.
 >
-> To make sure these containers can move seamlessly from a developer's laptop to Cloud Run and Vertex AI Reasoning Engine, they are completely stateless. Looking at `app/config.py` and the `/health` output, user travel profiles are injected dynamically via `MEMORYBANK_ID`, and conversation turns are persisted externally via `SESSION_STORE_URI`.
+> To make sure these containers can move seamlessly from a developer's laptop to Cloud Run and **Gemini Enterprise Agent Engine**, they are completely stateless. Looking at `app/config.py` and the `/health` output, user travel profiles are injected dynamically via `MEMORYBANK_ID`, and conversation turns are persisted externally via `SESSION_STORE_URI`.
 >
 > For local offline development, `docker compose` spins up our agents alongside a lightweight local proxy (`mock-agent-gateway`) on port `8095`."
 
@@ -161,7 +161,7 @@ curl -s http://localhost:8085/health | python3 -m json.tool
 
 ---
 
-### Demo Part 4C (`00:29 – 00:32`): Promoting Local Containers to Cloud Run & Reasoning Engine (3 Mins)
+### Demo Part 4C (`00:29 – 00:32`): Promoting Local Containers to Cloud Run & Agent Engine (3 Mins)
 
 #### 🖥️ What to Show on Screen
 1. **IDE File 1**: [`deploy/reasoning_engine_spec.json`](./deploy/reasoning_engine_spec.json)
@@ -190,7 +190,7 @@ curl -s http://localhost:8085/health | python3 -m json.tool
 
 #### ⌨️ Commands to Execute
 ```bash
-# 1. Inspect the BYOC ReasoningEngine deployment specification binding Agent Gateway
+# 1. Inspect the BYOC Agent Engine deployment specification binding Agent Gateway
 cat deploy/reasoning_engine_spec.json
 
 # 2. Verify our live Cloud Run services promoted from the local container image
@@ -204,9 +204,9 @@ gcloud run services list --region=us-central1
 #### 🎙️ Talk Track
 > "Now let's move these exact same container images from local Docker to **Google Cloud** and attach native platform governance.
 >
-> Look at `deploy/reasoning_engine_spec.json`. We deploy our container image with `identityType: AGENT_IDENTITY` and a single declarative `agentGatewayConfig.agentToAnywhereConfig` block pointing to `agw-travel-secure` in `us-central1`.
+> Look at `deploy/reasoning_engine_spec.json`. We deploy our container image to **Gemini Enterprise Agent Engine** with `identityType: AGENT_IDENTITY` and a single declarative `agentGatewayConfig.agentToAnywhereConfig` block pointing to `agw-travel-secure` in `us-central1`.
 >
-> In our `Dockerfile`, we install `agw-travel-secure`'s TLS inspection root CA certificate from its `agentGatewayCard` so the container trusts TLS interception by the gateway. Running `promote_local_to_cloudrun.sh` registers our MCP `tool-spec` in **Agent Registry**, binds our **IAP CEL policy**, and wires the fleet to **Firestore**, **Vertex AI Memory Bank**, and **Agent Gateway (`agw-travel-secure`)**."
+> In our `Dockerfile`, we install `agw-travel-secure`'s TLS inspection root CA certificate from its `agentGatewayCard` so the container trusts TLS interception by the gateway. Running `promote_local_to_cloudrun.sh` registers our MCP `tool-spec` in **Agent Registry**, binds our **IAP CEL policy**, and wires the fleet to **Firestore**, **Agent Engine Memory Bank**, and **Agent Gateway (`agw-travel-secure`)**."
 
 ---
 
@@ -215,7 +215,7 @@ gcloud run services list --region=us-central1
 #### 🖥️ What to Show on Screen
 1. **Browser Tab 1 — Interactive Web Chat Console (`http://localhost:8090/` or `http://localhost:8085/`)**:
    - Click the 5 one-click scenario buttons (`1. Compliant Flight`, `2. Embargoed (Iran)`, `3. Over Cap / 1st Class`, `4. Rogue SPIFFE (403)`, `5. Prompt Injection (403)`) while showing the live **Multi-Agent A2A & Egress Trace** and **Native Agent Gateway Audit Telemetry (`networkservices.googleapis.com/Gateway`)** in the right-hand panel.
-2. **Terminal (Companion CLI Runner)**: Run `scripts/run_demo_scenarios.py` against the live **Cloud Run + ReasoningEngine** endpoint.
+2. **Terminal (Companion CLI Runner)**: Run `scripts/run_demo_scenarios.py` against the live **Cloud Run + Agent Engine** endpoint.
 3. **Google Cloud Console Tabs — Agent Gateway Observability & Cloud Logging**:
    - **Tab A**: *Agent Platform -> Gateways -> `agw-travel-secure` -> Observability*
    - **Tab B**: *Observability -> Logging -> Logs Explorer* (`https://console.cloud.google.com/logs/query`)
@@ -229,7 +229,7 @@ gcloud run services list --region=us-central1
 
 #### ⌨️ Commands to Execute
 ```bash
-# Execute the 5 live scenarios directly against the deployed Cloud Run + ReasoningEngine fleet
+# Execute the 5 live scenarios directly against the deployed Cloud Run + Agent Engine fleet
 ROUTER_URL="$(gcloud run services describe travel-router --region=us-central1 --format='value(status.url)')"
 
 TARGET_ROUTER_URL="${ROUTER_URL}" \
@@ -260,7 +260,7 @@ TARGET_ROUTER_URL="${ROUTER_URL}" \
 
 ### 🎙️ Talk Track
 > "Let's recap the three architectural rules from what we just built:
-> 1. **Keep containers 100% stateless**: Decouple your state using `SESSION_STORE_URI` and `MEMORYBANK_ID` so the exact same container image moves cleanly from local Docker Compose to Cloud Run and Vertex AI Reasoning Engine.
+> 1. **Keep containers 100% stateless**: Decouple your state using `SESSION_STORE_URI` and `MEMORYBANK_ID` so the exact same container image moves cleanly from local Docker Compose to Cloud Run and **Gemini Enterprise Agent Engine**.
 > 2. **Test local-to-cloud transitions early**: Use `agy test` with a local mock gateway during development to prove your agent code handles `403` gateway rejections gracefully before you deploy.
 > 3. **Declare `agentGatewayConfig` on your deployment spec, install the Gateway Root CA, & register MCP tool specs**: Bake the gateway's `rootCertificates` into your container image for TLS inspection, register your MCP `tool-spec` in Agent Registry with IAP CEL policies, and coordinate with **Lisa Shen** on serverless GPU resources and backend scale parameters."
 

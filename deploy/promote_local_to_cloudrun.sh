@@ -130,7 +130,7 @@ ROUTER_URL="$(gcloud run services describe travel-router --region="${REGION}" --
 PROJECT_NUMBER="$(gcloud projects describe "${PROJECT_ID}" --format='value(projectNumber)')"
 ORG_ID="$(gcloud projects get-ancestors "${PROJECT_ID}" --format='value(id)' | tail -n 1)"
 
-echo "==> [Step 5] Binding Agent Identity Principals (ReasoningEngine & Cloud Run) & IAP Egressor Policy"
+echo "==> [Step 5] Binding Agent Identity Principals (Agent Engine & Cloud Run) & IAP Egressor Policy"
 for svc in travel-router travel-planner corporate-policy-agent; do
   AGENT_PRINCIPAL="principal://agents.global.org-${ORG_ID}.system.id.goog/resources/run/projects/${PROJECT_NUMBER}/locations/${REGION}/services/${svc}"
   for role in roles/run.invoker roles/datastore.user roles/logging.logWriter roles/logging.viewer roles/viewer roles/aiplatform.user; do
@@ -158,7 +158,7 @@ if [[ -n "${REASONING_ENGINE_ID:-}" ]]; then
     --quiet >/dev/null 2>&1 || true
 fi
 
-echo "==> [Step 6] Generating Resolved ReasoningEngine Spec with agentGatewayConfig"
+echo "==> [Step 6] Generating Resolved Agent Engine Spec with agentGatewayConfig"
 RESOLVED_SPEC="deploy/reasoning_engine_spec.resolved.json"
 sed "s/YOUR_PROJECT_ID/${PROJECT_ID}/g" deploy/reasoning_engine_spec.json > "${RESOLVED_SPEC}"
 
