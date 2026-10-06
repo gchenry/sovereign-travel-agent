@@ -60,14 +60,14 @@ gcloud run deploy mock-airline-api \
 
 AIRLINE_URL="$(gcloud run services describe mock-airline-api --region="${REGION}" --project="${PROJECT_ID}" --format='value(status.url)')"
 
-echo "==> [Step 3] Registering Governed Endpoints in Google Cloud Agent Registry"
+echo "==> [Step 3] Registering Governed MCP Server & Endpoints in Google Cloud Agent Registry"
 if ! gcloud alpha agent-registry services describe corporate-mcp-service --location="${REGION}" --project="${PROJECT_ID}" >/dev/null 2>&1; then
   gcloud alpha agent-registry services create corporate-mcp-service \
     --project="${PROJECT_ID}" \
     --location="${REGION}" \
     --display-name="Corporate Travel Policy MCP Server" \
-    --endpoint-spec-type="no-spec" \
-    --interfaces="url=${MCP_URL},protocolBinding=HTTP_JSON" \
+    --mcp-server-spec-type="no-spec" \
+    --interfaces="url=${MCP_URL},protocolBinding=JSONRPC" \
     --quiet
 fi
 

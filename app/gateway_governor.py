@@ -68,6 +68,8 @@ def resolve_native_agent_gateway_state() -> Dict[str, Any]:
 
     mcp_host = urlparse(cfg.mcp_server_url).netloc
     airline_host = urlparse(cfg.airline_api_url).netloc
+    planner_host = urlparse(cfg.travel_planner_url).netloc
+    policy_host = urlparse(cfg.corporate_policy_agent_url).netloc
 
     state: Dict[str, Any] = {
         "gateway_resource": gateway_resource,
@@ -80,8 +82,12 @@ def resolve_native_agent_gateway_state() -> Dict[str, Any]:
         "registered_endpoints": {
             mcp_host: f"projects/{project_id}/locations/{location}/services/corporate-mcp-service",
             airline_host: f"projects/{project_id}/locations/{location}/services/mock-airline-service",
+            planner_host: f"projects/{project_id}/locations/{location}/services/travel-planner-agent",
+            policy_host: f"projects/{project_id}/locations/{location}/services/corporate-policy-agent",
         },
-        "allowed_hosts": sorted({mcp_host, airline_host}),
+        "allowed_hosts": sorted(
+            {h for h in (mcp_host, airline_host, planner_host, policy_host) if h}
+        ),
     }
 
     token = _get_gcp_access_token()
@@ -137,7 +143,15 @@ def resolve_native_agent_gateway_state() -> Dict[str, Any]:
                     hosts = set(state["allowed_hosts"])
                     for svc in reg_resp.json().get("services", []):
                         svc_name = svc.get("name", "")
-                        if "corporate-mcp-service" in svc_name or "mock-airline-service" in svc_name:
+                        if any(
+                            k in svc_name
+                            for k in (
+                                "corporate-mcp-service",
+                                "mock-airline-service",
+                                "travel-planner-agent",
+                                "corporate-policy-agent",
+                            )
+                        ):
                             reg_endpoint = svc.get("registryResource", svc_name)
                             for iface in svc.get("interfaces", []):
                                 host = urlparse(iface.get("url", "")).netloc
@@ -162,12 +176,24 @@ def _record_native_audit_log(
     http_status: int,
     gov_state: Dict[str, Any],
     registry_endpoint: str | None = None,
+    method: str = "POST",
 ) -> Dict[str, Any]:
     cfg = get_config()
     project_id = cfg.project_id
     location = cfg.location
     authorized_ids = _get_authorized_spiffe_ids(project_id)
     severity = "INFO" if decision == "ALLOW" else "ERROR"
+    parsed_target = urlparse(target_url)
+    host = parsed_target.netloc or target_url
+    gateway_name = gov_state["gateway_resource"].split("/")[-1]
+
+    agent_gateway_info: Dict[str, Any] = {
+        "agentGatewayResource": gov_state["gateway_resource"],
+    }
+    if registry_endpoint:
+        agent_gateway_info["agentRegistryResource"] = (
+            f"//agentregistry.googleapis.com/{registry_endpoint}"
+        )
 
     json_payload = {
         "decision": decision,
@@ -181,19 +207,29 @@ def _record_native_audit_log(
         "mtls_psc_endpoint": gov_state["mtls_psc_endpoint"],
         "authz_policy": gov_state["authz_policy"],
         "agent_registry_endpoint": registry_endpoint or "UNREGISTERED_EXTERNAL_TARGET",
+        "tlsSniHostname": host,
+        "authzPolicyInfo": {
+            "result": "ALLOWED" if decision == "ALLOW" else "DENIED",
+            "policy": gov_state["authz_policy"],
+        },
+        "agentGatewayInfo": agent_gateway_info,
     }
     entry = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "logName": f"projects/{project_id}/logs/agentgateway.googleapis.com%2Fegress_policy",
         "severity": severity,
         "resource": {
-            "type": "networkservices.googleapis.com/AgentGateway",
+            "type": "networkservices.googleapis.com/Gateway",
             "labels": {
-                "gateway_name": "agw-travel-secure",
-                "mode": gov_state["governed_access_path"],
+                "project_id": project_id,
                 "location": location,
-                "mtls_psc_endpoint": gov_state["mtls_psc_endpoint"],
+                "gateway_name": gateway_name,
             },
+        },
+        "httpRequest": {
+            "requestMethod": method.upper(),
+            "requestUrl": target_url,
+            "status": http_status,
         },
         "jsonPayload": json_payload,
     }
@@ -201,27 +237,62 @@ def _record_native_audit_log(
 
     token = _get_gcp_access_token()
     if token and project_id != "YOUR_PROJECT_ID":
+        iap_resource = gov_state["gateway_resource"]
+        if registry_endpoint:
+            for kind in ("/endpoints/", "/mcpServers/", "/agents/"):
+                if kind in registry_endpoint:
+                    iap_resource = registry_endpoint.replace(kind, f"/agentRegistry{kind}", 1)
+                    break
+
         try:
             with httpx.Client(timeout=2.0) as client:
                 client.post(
                     "https://logging.googleapis.com/v2/entries:write",
                     headers={"Authorization": f"Bearer {token}"},
                     json={
-                        "logName": f"projects/{project_id}/logs/agentgateway.googleapis.com%2Fegress_policy",
                         "resource": {
-                            "type": "generic_node",
+                            "type": "networkservices.googleapis.com/Gateway",
                             "labels": {
                                 "project_id": project_id,
                                 "location": location,
-                                "namespace": "networkservices.googleapis.com/AgentGateway",
-                                "node_id": "agw-travel-secure",
+                                "gateway_name": gateway_name,
                             },
                         },
                         "entries": [
                             {
+                                "logName": f"projects/{project_id}/logs/agentgateway.googleapis.com%2Fegress_policy",
                                 "severity": severity,
+                                "httpRequest": {
+                                    "requestMethod": method.upper(),
+                                    "requestUrl": target_url,
+                                    "status": http_status,
+                                },
                                 "jsonPayload": json_payload,
-                            }
+                            },
+                            {
+                                "logName": f"projects/{project_id}/logs/agentgateway.googleapis.com%2Fiap_authz",
+                                "severity": severity,
+                                "protoPayload": {
+                                    "@type": "type.googleapis.com/google.cloud.audit.AuditLog",
+                                    "serviceName": "iap.googleapis.com",
+                                    "methodName": "google.cloud.iap.v1.IdentityAwareProxyEgression.Authorize",
+                                    "authenticationInfo": {
+                                        "principalSubject": spiffe_id or "MISSING",
+                                    },
+                                    "requestMetadata": {
+                                        "requestAttributes": {
+                                            "host": host,
+                                        }
+                                    },
+                                    "authorizationInfo": [
+                                        {
+                                            "resource": iap_resource,
+                                            "permission": "iap.agentRegistry.egress",
+                                            "granted": decision == "ALLOW",
+                                        }
+                                    ],
+                                },
+                            },
                         ],
                     },
                 )
@@ -273,6 +344,7 @@ def execute_governed_egress(
             http_status=403,
             gov_state=gov_state,
             registry_endpoint=registry_endpoint,
+            method=method,
         )
         return 403, {
             "error": "AgentGatewaySPIFFEValidationError",
@@ -293,6 +365,7 @@ def execute_governed_egress(
             http_status=403,
             gov_state=gov_state,
             registry_endpoint=None,
+            method=method,
         )
         return 403, {
             "error": "AgentGatewayEgressPolicyViolation",
@@ -312,6 +385,7 @@ def execute_governed_egress(
         http_status=200,
         gov_state=gov_state,
         registry_endpoint=registry_endpoint,
+        method=method,
     )
 
     forward_headers = get_cloud_run_headers(

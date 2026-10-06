@@ -13,6 +13,7 @@ from typing import Any, Dict, List
 import httpx
 
 from app.config import get_cloud_run_headers, get_config
+from app.gateway_governor import execute_governed_egress
 from app.state import SessionStoreClient
 from app.agents.travel_planner import TravelPlannerAgent
 from app.agents.corporate_policy import CorporatePolicyAgent
@@ -41,19 +42,29 @@ class TravelRouterAgent:
         cfg = get_config()
         if cfg.travel_planner_url and cfg.travel_planner_url != "in-process":
             target = f"{cfg.travel_planner_url.rstrip('/')}/a2a/plan"
+            body = {
+                "user_id": user_id,
+                "destination": destination,
+                "requested_cabin": requested_cabin,
+            }
             try:
-                with httpx.Client(timeout=25.0) as client:
-                    resp = client.post(
-                        target,
-                        json={
-                            "user_id": user_id,
-                            "destination": destination,
-                            "requested_cabin": requested_cabin,
-                        },
-                        headers=get_cloud_run_headers(target),
+                if cfg.agent_gateway_url.lower() == "native":
+                    status_code, data = execute_governed_egress(
+                        target_url=target,
+                        method="POST",
+                        json_body=body,
                     )
-                    if resp.status_code == 200:
-                        return resp.json()
+                    if status_code == 200:
+                        return data
+                else:
+                    with httpx.Client(timeout=25.0) as client:
+                        resp = client.post(
+                            target,
+                            json=body,
+                            headers=get_cloud_run_headers(target),
+                        )
+                        if resp.status_code == 200:
+                            return resp.json()
             except httpx.HTTPError:
                 pass
         return self.planner.run(
@@ -75,22 +86,32 @@ class TravelRouterAgent:
         cfg = get_config()
         if cfg.corporate_policy_agent_url and cfg.corporate_policy_agent_url != "in-process":
             target = f"{cfg.corporate_policy_agent_url.rstrip('/')}/a2a/policy-check"
+            body = {
+                "user_id": user_id,
+                "department": department,
+                "cabin_class": cabin_class,
+                "estimated_fare_usd": estimated_fare_usd,
+                "destination": destination,
+                "override_spiffe_id": override_spiffe_id,
+            }
             try:
-                with httpx.Client(timeout=25.0) as client:
-                    resp = client.post(
-                        target,
-                        json={
-                            "user_id": user_id,
-                            "department": department,
-                            "cabin_class": cabin_class,
-                            "estimated_fare_usd": estimated_fare_usd,
-                            "destination": destination,
-                            "override_spiffe_id": override_spiffe_id,
-                        },
-                        headers=get_cloud_run_headers(target),
+                if cfg.agent_gateway_url.lower() == "native":
+                    status_code, data = execute_governed_egress(
+                        target_url=target,
+                        method="POST",
+                        json_body=body,
                     )
-                    if resp.status_code == 200:
-                        return resp.json()
+                    if status_code == 200:
+                        return data
+                else:
+                    with httpx.Client(timeout=25.0) as client:
+                        resp = client.post(
+                            target,
+                            json=body,
+                            headers=get_cloud_run_headers(target),
+                        )
+                        if resp.status_code == 200:
+                            return resp.json()
             except httpx.HTTPError:
                 pass
         return self.policy_agent.run(
